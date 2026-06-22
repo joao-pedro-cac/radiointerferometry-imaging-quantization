@@ -1,27 +1,24 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as colors
 import xarray as xr
+import matplotlib.pyplot as plt
 import ducc0.wgridder as wgrid
 from time import time
 import pfb_imaging.deconv.clark as pfb_clark
 import pfb_imaging.deconv.hogbom as pfb_hogbom
-from clean import hogbom_clean
-from shannon import freq_max
+from fileread import extract_pixel_info
+from clean import *
 
-# auxilary variables
-BARSPACE = 90
+
+# auxiliary variables
+BARSPACE = 80
+BARCHAR = '*'
 VISIBILITY_MAXNUMBER = 4096
-IMAGE_SIZE_X = 2520
-IMAGE_SIZE_Y = 2520
-LOOP_NUMBER = 1
-SIMULATED_DATA_ABSOLUTEPATH = "../data/simulated/point_field_ctrl/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr"
+SIMULATED_DATA_PATH = "../data/simulated/point_field_ctrl/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr"
+TRUTH_MODEL_PATH = "../data/simulated/point_field_ctrl/truth_model.fits"
 
 
 # data set simulated by OSKAR
-oskar_simulated_dataset = xr.open_dataset(SIMULATED_DATA_ABSOLUTEPATH, engine="zarr")
-print(oskar_simulated_dataset)
-print()
+oskar_simulated_dataset = xr.open_dataset(SIMULATED_DATA_PATH, engine="zarr")
 
 
 # visibilities data subset
@@ -30,64 +27,21 @@ freq   = oskar_simulated_dataset["FREQ"]
 vis    = oskar_simulated_dataset["VIS"]
 weight = oskar_simulated_dataset["WEIGHT"]
 
-# time_start = time()
-# res = freq_max(uvw)
-# time_stop = time()
-
-# print(f"\n max(NORMS uv) = {res} ({time_stop - time_start} s)")
-
 uvw_data = uvw.data
 freq_data = freq.data
 vis_data = np.squeeze(vis.data)
 weight_data = np.squeeze(weight.data)
 
 
-
-
 # image resolution parameters
-# pixel_size_x = np.radians(1.0) / IMAGE_SIZE_X  # 1 degree projected over N pixels (in projected radians)
-# pixel_size_y = np.radians(1.0) / IMAGE_SIZE_Y
-# npix_x, npix_y = IMAGE_SIZE_X, IMAGE_SIZE_Y    # image dimensions (in pixels)
-# pixel_size_x = np.radians(1.0) / (50 * IMAGE_SIZE_X)
-# pixel_size_y = np.radians(1.0) / (50 * IMAGE_SIZE_Y)
+npix_x, npix_y, pixel_size_x, pixel_size_y = extract_pixel_info(TRUTH_MODEL_PATH)
+pixel_size_x = np.radians(pixel_size_x)    # degrees to radians conversion
+pixel_size_y = np.radians(pixel_size_y)
 
 
-
-
-
-
-
-
-
-
-# =====================================================================
-# Target Metrics Matched to truth_dirty.fits & truth_model.fits
-# =====================================================================
-
-# 1. Exact pixel boundaries from FITS header (NAXIS1, NAXIS2)
-npix_x = 2520
-npix_y = 2520
-
-# 2. Convert CDELT from degrees to radians for ducc0.wgridder
-# CDELT = 0.00039890703636168
-pixel_size_deg = 0.00039890703636168
-pixel_size_x = np.radians(pixel_size_deg)
-pixel_size_y = np.radians(pixel_size_deg)
-
-print(f"--- FITS Truth Parameters ---")
-print(f"Grid Size:  {npix_x} x {npix_y} pixels")
-print(f"Pixel Size: {pixel_size_x} radians ({pixel_size_deg}°)")
-print(f"Total FOV:  {np.degrees(pixel_size_x * npix_x):.3f}°")
-print(f"-----------------------------\n")
-
-
-
-
-
-
-
-
-time_start_dirty = time()
+print(BARCHAR * BARSPACE)
+print("Computing dirty image...")
+time_start = time()
 
 # dirty image computation
 dirty_image = wgrid.vis2dirty(
@@ -105,70 +59,208 @@ dirty_image = wgrid.vis2dirty(
     double_precision_accumulation=True  # use double precision for computation
 )
 
-time_stop_dirty = time()
-
-print(f"Image dirty shape: {dirty_image.shape}\n")
-print(f"Computation time (dirty image): {time_stop_dirty - time_start_dirty} seconds")
-
+time_stop = time()
+dirty_image = np.transpose(dirty_image)
+dirty_image = dirty_image[::-1, :]
 
 
+print(f"Dirty image shape: {dirty_image.shape}")
+print(f"Computation time (dirty image): {time_stop - time_start} seconds")
+print(BARCHAR * BARSPACE)
 
-time_start_psf = time()
 
-# PSF computation
+print("Computing PSF...")
+time_start = time()
+
+# PSF computation - Double the pixel grid size to handle edge padding in CLEAN
 psf = wgrid.vis2dirty(
-    uvw=uvw_data,                       # uvw coordinates
-    freq=freq_data,                     # channel frequencies
-    vis=np.ones_like(vis_data),         # visibilities
-    wgt=weight_data,                    # weight array
-    npix_x=npix_x,                      # no. pixels in the x-axis
-    npix_y=npix_y,                      # no. pixels in the y-axis
-    pixsize_x=pixel_size_x,             # x-axis pixel size
-    pixsize_y=pixel_size_y,             # y-axis pixel size
-    epsilon=1e-5,                       # computation accuracy (>= 1e-5)
-    do_wgridding=True,                  # perform the full algorithm
-    nthreads=4,                         # no. threads used for computation
-    double_precision_accumulation=True  # use double precision for computation
+    uvw=uvw_data,                       
+    freq=freq_data,                     
+    vis=np.ones_like(vis_data),         
+    wgt=weight_data,                    
+    npix_x=2 * npix_x,                  # Changed: 2x grid size
+    npix_y=2 * npix_y,                  # Changed: 2x grid size
+    pixsize_x=pixel_size_x,             
+    pixsize_y=pixel_size_y,             
+    epsilon=1e-5,                       
+    do_wgridding=True,                  
+    nthreads=4,                         
+    double_precision_accumulation=True  
 )
+psf = np.transpose(psf)
+psf = psf[::-1, :]
 
-time_stop_psf = time()
+time_stop = time()
 
-print(f"Computation time (PSF):         {time_stop_psf - time_start_psf} seconds\n")
+print(f"PSF shape: {psf.shape}")
+print(f"Computation time (PSF):         {time_stop - time_start} seconds")
+print(BARCHAR * BARSPACE)
 
 
 
 
-# Run CLEAN on your existing arrays
-# # res = pfb_clark.clark(dirty=dirty_image, psf=psf, psfhat=)
-# model, residual, restored, components = hogbom_clean(
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# CLEAN algorithm
+# Add the new axis as the first dimension [np.newaxis, :, :] to match (nband, nx, ny)
+time_start = time()
+model_cube, status = pfb_hogbom.hogbom(
+    dirty_image[np.newaxis, :, :], 
+    psf[np.newaxis, :, :], 
+    threshold=0
+)
+time_stop = time()
+
+print(f"Computation time (Clean image): {time_stop - time_start} seconds")
+
+# Extract the 2D model from the 3D model_cube for the plotting code below
+model = np.squeeze(model_cube)
+print(f"CLEAN status: {"OK" if status == 0 else "ERROR"}")
+print(f"max model = {np.max(model)} at {np.where(model == np.max(model))}")
+
+# res = hogbom_2d(dirty=dirty_image,
+#                 psf=psf,
+#                 threshold=np.std(dirty_image) * 0.005)
+# model, residual, restored, restored_noresidual, components = hogbom_clean(
 #     dirty_image,
 #     psf,
 #     niter=10000,
-#     gain=0.1,
-#     threshold=np.std(dirty_image) * 0.005,  # 3 sigma threshold
+#     gain=0.5,
+#     threshold=np.max(dirty_image) * 0.005,  # 3 sigma threshold
 #     verbose=True
 # )
 
 
-offset_dirty_image = dirty_image + abs(float(np.min(dirty_image)))                # remove negative values
-normalized_dirty_image = offset_dirty_image / float(np.max(offset_dirty_image))   # normalize values
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # plotting results
 fig, axes = plt.subplots(figsize=(14, 12))
 
-im = axes.imshow(dirty_image, cmap='inferno', origin='lower')
-axes.set_title('Dirty Image')
 
-plt.colorbar(im, ax=axes, label='Normalized Intensity')
+
+# model image
+
+# percentile = np.percentile(dirty_image, 99.5)
+# model_new = np.clip(dirty_image, -np.nanstd(model), percentile)
+
+
+# im = axes.imshow(model_new, cmap='inferno', origin='lower')
+im = axes.imshow(model, cmap='grey', origin='lower')
+plt.colorbar(im, ax=axes, label='Intensity')
+axes.set_title('Model Image')
 
 plt.tight_layout()
-plt.savefig('dirty-image.png', format='png')
-plt.show()
+plt.savefig('images/model.png', format='png')
 
 
 
+# dirty image
+# rms = np.nanstd(dirty_image)            # standard deviation
+# for p in [90, 95, 99, 99.5, 99.9, 99.95, 99.99, 99.999, 100]:
+#     percentile = np.percentile(dirty_image, p)
+#     dirty_image_new = np.clip(dirty_image, -rms, percentile)
 
+#     im = axes.imshow(dirty_image_new, cmap='inferno', origin='lower')
+#     axes.set_title(f'Dirty Image (percentile = {p}%)')
+#     plt.tight_layout()
 
-
-# COMPRENDRE LA LOGIQUE DERRIÈRE LE CHOIX DU NOMBRE DE PIXELS ET DE LA VALEUR EN RADIANS DE LA TAILLE DES PIXELS
-# meerkat.tm DIFFÉRENT DE alma.tm
+#     if int(p) == p:
+#         filename = str(p)
+#     else:
+#         whole_part = int(p)
+#         decimal_part = p - whole_part
+#         filename = str(whole_part) + '_' + str(decimal_part)[2:5]
+#     plt.savefig(f'images/dirty/dirty-image-{filename}.png', format='png')
