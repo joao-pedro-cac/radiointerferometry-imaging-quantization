@@ -44,23 +44,6 @@ print(BARCHAR * BARSPACE)
 print("Computing dirty image...")
 time_start = time()
 
-
-
-### Experiment parameters
-
-threshold = 
-clean_maxit = ...
-..
-
-
-type_... = "int16"
-
-### Save exeperiment parameter to json
-
-
-
-
-
 # dirty image computation
 dirty_image = wgrid.vis2dirty(
     uvw=uvw_data,                       # uvw coordinates
@@ -367,4 +350,3 @@ for p in [90, 95, 99, 99.5, 99.9, 99.95, 99.99, 99.999, 100]:
     plt.savefig(f'images/dirty/dirty-image-{filename}.png', format='png')
 
 
-### Save metrics to json
