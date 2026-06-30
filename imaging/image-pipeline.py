@@ -8,18 +8,20 @@ import pfb_imaging.deconv.hogbom as pfb_hogbom
 from fileread import extract_pixel_info
 # from clean import *
 from astropy.io import fits
+from image_data_analysis import create_histogram
 
 
 # auxiliary variables
 BARSPACE = 80
 BARCHAR = '*'
 VISIBILITY_MAXNUMBER = 4096
-SIMULATED_DATA_PATH = "../data/simulated/point_field_ctrl/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr"
-TRUTH_MODEL_PATH = "../data/simulated/point_field_ctrl/truth_model.fits"
+SIMULATED_DATA_PATH = "../../data/simulated/point_field_ctrl/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr"
+TRUTH_MODEL_PATH = "../../data/simulated/point_field_ctrl/truth_model.fits"
 
 
 # data set simulated by OSKAR
 oskar_simulated_dataset = xr.open_dataset(SIMULATED_DATA_PATH, engine="zarr")
+print(oskar_simulated_dataset)
 
 
 # visibilities data subset
@@ -32,6 +34,32 @@ uvw_data = uvw.data
 freq_data = freq.data
 vis_data = np.squeeze(vis.data)
 weight_data = np.squeeze(weight.data)
+
+
+
+
+
+
+
+for i in range(len(uvw_data)):
+    for j in range(len(uvw_data[i])):
+        uvw_data[i,j] = int(uvw_data[i,j])
+
+
+
+create_histogram(uvw_data, "./images/histogram.png", xlog=False, ylog=True)
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # image resolution parameters
@@ -348,5 +376,4 @@ for p in [90, 95, 99, 99.5, 99.9, 99.95, 99.99, 99.999, 100]:
         decimal_part = p - whole_part
         filename = str(whole_part) + '_' + str(decimal_part)[2:5]
     plt.savefig(f'images/dirty/dirty-image-{filename}.png', format='png')
-
 

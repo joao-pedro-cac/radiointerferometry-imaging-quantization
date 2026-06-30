@@ -39,13 +39,3 @@ def extract_pixel_info(truth_model_datapath):
         ang2_deg = float(ang2_deg)
 
         return val1, val2, ang1_deg, ang2_deg
-        # print(text)
-        # print('\n\n')
-        # print(text[naxis1_index:naxis1_index+20])
-        # print(text[naxis2_index:naxis2_index+20])
-        # print('\n\n')
-        # print(f"Size 1: {val1}, type = {type(val1)}")
-        # print(f"Size 2: {val2}, type = {type(val2)}")
-        # print('\n\n')
-        # print(f"Angle 1: {ang1_deg}°, type = {type(ang1_deg)}")
-        # print(f"Angle 2: {ang2_deg}°, type = {type(ang2_deg)}")

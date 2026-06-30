@@ -53,7 +53,7 @@ from pfb_imaging.core.init import init as pfb_init
 from pfb_imaging.utils.fits import save_fits, set_wcs
 from pfb_imaging.utils.misc import set_image_size
 
-from src.noise import add_heteroscedastic_noise
+from noise import add_heteroscedastic_noise
 
 
 def get_parser() -> argparse.ArgumentParser:
