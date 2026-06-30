@@ -19,3 +19,4 @@ int main() {
     printf("\n\n%.20f\n%.20lf\n", x, (float)x);
     return 0;
 }
+

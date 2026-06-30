@@ -1,44 +1,102 @@
-from ieee_754_bitwise_computation import *
-from numpy import float16, float32, float64
-from random import random
+from ieee_754_casting import *
+import matplotlib.pyplot as plt
+import numpy as np
+import json
 
-un64 = DataUnion64Bits()
-un32 = DataUnion32Bits()
+val = -71.17545253086246       # this value demostrates the conventional rounding for float32 and float16
 
-value_min = -100
-value_max = +100
+# double-precision (float64)
+s, e, m  = get_double_datafields(val)
+print(f"float64 value: {val:.25f}")
+print(f"Sign Exp Man: {s}  {e}  {m}")
+print(f"---------------------------")
 
-un64.double = (value_max - value_min) * random() + value_min
+# single-precision (float32)
+val, error = double_to_float(val)
+s, e, m  = get_float_datafields(val)
+print(f"float32 value: {val:.25f}")
+print(f"Sign Exp Man: {s}  {e}  {m}")
+print(f"quantization error: {error * 100:.12f}%")
+print(f"---------------------------")
 
-sign, exponent, mantissa = get_double_datafields(un64)
-print(f"float64: {un64.double:.20f}")
-print(f"sign     = {sign}")
-print(f"exponent = {exponent}")
-print(f"mantissa = {mantissa}")
-print()
+# half-precision (float16)
+val_half, error = float_to_half(val)
+s, e, m  = get_half_datafields(val_half)
+print(f"float16 value: {val_half:.25f}")
+print(f"Sign Exp Man: {s}  {e}  {m}")
+print(f"quantization error: {error * 100:.12f}%")
+print(f"---------------------------")
 
-un32, error = double_to_float(un64)
-float_sign, float_exponent, float_mantissa = get_float_datafields(un32)
+# brain float (bfloat16)
+val, error = float_to_bfloat(val)
+s, e, m  = get_bfloat_datafields(val)
+print(f"bfloat16 value: {val:.25f}")
+print(f"Sign Exp Man: {s}  {e}  {m}")
+print(f"quantization error: {error * 100:.12f}%")
+print(f"---------------------------")
 
-print(f"float32: {un32.float:.20f}")
-print(f"sign     = {float_sign}")
-print(f"exponent = {float_exponent}")
-print(f"mantissa = {float_mantissa}")
 
-print(f"\nQuantization error (from float64) = {error*100:.10f}%\n")
 
-un32brain, error = float_to_bfloat(un32)
-float_sign, float_exponent, float_mantissa = get_bfloat_datafields(un32)
 
-print(f"bfloat16: {un32brain.float:.20f}")
-print(f"sign     = {float_sign}")
-print(f"exponent = {float_exponent}")
-print(f"mantissa = {float_mantissa}")
 
-print(f"\nQuantization error (from float32) = {error*100:.10f}%")
 
-# print(f"\n\nNumPy interpretation:")
-# print(f"float64({un64.double:.20f}) = {float64(un64.double):.20f}")
-# print(f"float32({un64.double:.20f}) = {float32(un64.double):.20f}")
-# print(f"float16({un32.float:.20f}) = {float16(un32.float):.20f}")
-# print(f"float16({un64.double:.20f}) = {float16(un64.double):.20f}")
+
+
+
+
+
+"""
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+TESTER double_to_half() ET double_to_bfloat()
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+"""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+DOUBLE_MIN = 5E-324
+DOUBLE_MAX = 1.7976931348623157e+308
+
+FLOAT_MIN = 1E-45
+FLOAT_MAX = 3.402823466385288598117042E+38
+
+HALF_MIN = 5.97E-8
+HALF_MAX = 65504
+
+BFLOAT_MIN = 9.1835E-41
+BFLOAT_MAX = 3.3895313E+38
+
+float_ranges = {
+    "float64" : {
+        "min_value" : DOUBLE_MIN,
+        "max_value" : DOUBLE_MAX,
+    },
+    "float32" : {
+        "min_value" : FLOAT_MIN,
+        "max_value" : FLOAT_MAX,
+    },
+    "bfloat16" : {
+        "min_value" : BFLOAT_MIN,
+        "max_value" : BFLOAT_MAX,
+    },
+    "float16" : {
+        "min_value" : HALF_MIN,
+        "max_value" : HALF_MAX,
+    }
+}
+
+with open("float-ranges.json", "w") as output_file:
+    json.dump(float_ranges, output_file)

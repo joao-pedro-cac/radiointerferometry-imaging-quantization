@@ -1,0 +1,1 @@
+{"float64": {"min_value": 5e-324, "max_value": 1.7976931348623157e+308}, "float32": {"min_value": 1e-45, "max_value": 3.4028234663852886e+38}, "bfloat16": {"min_value": 9.1835e-41, "max_value": 3.3895313e+38}, "float16": {"min_value": 5.97e-08, "max_value": 65504}}
