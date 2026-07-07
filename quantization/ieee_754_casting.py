@@ -7,6 +7,11 @@ A library for analyzing and converting floating-point numbers through bitwise op
 It includes
     1. functions to read the sign, exponent and mantissa field values of a floating-point number
     2. casting functions from higher-resolution float types to lower-resolution ones
+        - float64 --> float32
+        - float64 --> float16
+        - float64 --> bfloat16
+        - float32 --> float16
+        - float32 --> bfloat16
 """
 import struct
 

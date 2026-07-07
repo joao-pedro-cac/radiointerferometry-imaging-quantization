@@ -1,9 +1,7 @@
 from ieee_754_casting import *
-import matplotlib.pyplot as plt
-import numpy as np
 import json
 
-val = -71.17545253086246       # this value demostrates the conventional rounding for float32 and float16
+val = -71.17545253086246
 
 # double-precision (float64)
 s, e, m  = get_double_datafields(val)
@@ -33,37 +31,6 @@ s, e, m  = get_bfloat_datafields(val)
 print(f"bfloat16 value: {val:.25f}")
 print(f"Sign Exp Man: {s}  {e}  {m}")
 print(f"quantization error: {error * 100:.12f}%")
-print(f"---------------------------")
-
-
-
-
-
-
-
-
-
-
-
-"""
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-TESTER double_to_half() ET double_to_bfloat()
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-"""
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
