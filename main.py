@@ -33,11 +33,12 @@ SIMULATION_SCRIPT_PATH = "../scripts/run_sim_ctrl.sh"
 # image reconstruction parameters
 CLEAN_VARIANT = "hogbom"
 GRIDDING_EPSILON = 1e-5
-CLEAN_GAMMA = 0.1
+CLEAN_GAMMA = 0.01
 CLEAN_PF = 0.1
 CLEAN_MAXITER = 25
 MAJORLOOP_NUMITER = 5
-experiment_commentary = "Comparing float64 x float32 x float16 x bfloat16 using four pipelines and recreating the original sky image"
+experiment_commentary = "Comparing float64 x float32 x float16 x bfloat16 using four pipelines and recreating the original sky image." \
+                        " Testing pf adaptation so that we always consider the initial dirty image's peak"
 
 
 
@@ -155,7 +156,7 @@ while k <= MAJORLOOP_NUMITER and status_64 == 1:
                                                           vis=recomputed_vis,
                                                           wgt=wgt_64)
     clean_model_64, status_64 = pipeline.compute_clean_image(dirty_image=recomputed_dirty_image,
-                                                             psf=psf_64)
+                                                             psf=psf_64 / np.max(recomputed_dirty_image) * np.max(dirty_image_64))
 
     clean_image_computing_time_64 += pipeline.computing_time_vis + pipeline.computing_time_dirty_image + pipeline.computing_time_clean_image
     mem_clean_image_64            += pipeline.used_mem_dirty_image + pipeline.used_mem_dirty_image + pipeline.used_mem_clean_image
@@ -241,7 +242,7 @@ while k <= MAJORLOOP_NUMITER and status_32 == 1:
                                                           vis=recomputed_vis,
                                                           wgt=wgt_32)
     clean_model_32, status_32 = pipeline.compute_clean_image(dirty_image=recomputed_dirty_image,
-                                                             psf=psf_32)
+                                                             psf=psf_32 / np.max(recomputed_dirty_image) * np.max(dirty_image_32))
 
     clean_image_computing_time_32 += pipeline.computing_time_vis + pipeline.computing_time_dirty_image + pipeline.computing_time_clean_image
     mem_clean_image_32            += pipeline.used_mem_dirty_image + pipeline.used_mem_dirty_image + pipeline.used_mem_clean_image
@@ -335,7 +336,7 @@ while k <= MAJORLOOP_NUMITER and status_16 == 1:
                                                           vis=recomputed_vis,
                                                           wgt=wgt_16)
     clean_model_16, status_16 = pipeline.compute_clean_image(dirty_image=recomputed_dirty_image,
-                                                             psf=psf_16)
+                                                             psf=psf_16 / np.max(recomputed_dirty_image) * np.max(dirty_image_16))
 
     clean_image_computing_time_16 += pipeline.computing_time_vis + pipeline.computing_time_dirty_image + pipeline.computing_time_clean_image
     mem_clean_image_16            += pipeline.used_mem_dirty_image + pipeline.used_mem_dirty_image + pipeline.used_mem_clean_image
@@ -429,7 +430,7 @@ while k <= MAJORLOOP_NUMITER and status_b16 == 1:
                                                           vis=recomputed_vis,
                                                           wgt=wgt_b16)
     clean_model_b16, status_b16 = pipeline.compute_clean_image(dirty_image=recomputed_dirty_image,
-                                                             psf=psf_b16)
+                                                             psf=psf_b16 / np.max(recomputed_dirty_image) * np.max(dirty_image_b16))
 
     clean_image_computing_time_b16 += pipeline.computing_time_vis + pipeline.computing_time_dirty_image + pipeline.computing_time_clean_image
     mem_clean_image_b16            += pipeline.used_mem_dirty_image + pipeline.used_mem_dirty_image + pipeline.used_mem_clean_image
