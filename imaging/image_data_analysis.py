@@ -32,7 +32,7 @@ def compute_rms(image):
 
 
 # compute the dynamic range (in decibels) of an image
-def compute_dr(image,eps=1e-12):
+def compute_dr(image, eps=1e-12):
     image = np.abs(image).flatten()
 
     try:
@@ -45,21 +45,21 @@ def compute_dr(image,eps=1e-12):
 
 
 # compute the SNR of an image with respect to another image
-def compute_snr(clean_image, original_image):
+def compute_snr(clean_image, original_image, eps=1e-12):
     noise_power = np.sum((clean_image - original_image) ** 2)
     mse = noise_power / clean_image.size
 
     clean_image_power = np.sum(clean_image ** 2)
 
-    return 10 * np.log10(clean_image_power / mse)                   # unit conversion to decibels
+    return 10 * np.log10(clean_image_power / (mse + eps))                   # unit conversion to decibels
 
 
 # compute the PSNR of an image with respect to another image
-def compute_psnr(clean_image, original_image):
+def compute_psnr(clean_image, original_image, eps=1e-12):
     noise_power = np.sum((clean_image - original_image) ** 2)
     mse = noise_power / clean_image.size
 
-    return 10 * np.log10((np.max(clean_image) ** 2) / mse)                 # unit conversion to decibels
+    return 10 * np.log10((np.max(clean_image) ** 2) / (mse + eps))                 # unit conversion to decibels
 
 
 # compute the SSIM of an image with respect to another image
