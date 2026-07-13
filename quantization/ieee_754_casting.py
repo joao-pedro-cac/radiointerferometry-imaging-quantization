@@ -179,6 +179,9 @@ def double_to_float(value: float):
                    input data
     - error: quantization (relative) error
     """
+    
+    if value == 0:
+        return 0, 0
 
     double_sign, double_exponent, double_mantissa = get_double_datafields(value)
 
@@ -186,7 +189,7 @@ def double_to_float(value: float):
     double_bias = (1 << 10) - 1
     float_bias = (1 << 7) - 1
 
-    float_exponent_mask = ((1 << 8) - 1)    # single-precision exponent bit mask
+    float_exponent_mask = (1 << 8) - 1      # single-precision exponent bit mask
 
     float_sign = double_sign
     float_exponent = (double_exponent + double_bias - float_bias) & float_exponent_mask
@@ -224,14 +227,15 @@ def float_to_half(value: float):
     - error: quantization (relative) error
     """
 
+    if value == 0:
+        return 0, 0
+
     # single-precision floating-point number
     float_sign, float_exponent, float_mantissa = get_float_datafields(value)
 
     # IEEE 754-defined biases
     float_bias = (1 << 7) - 1
     half_bias = (1 << 4) - 1
-    # -----------------------------------------
-
 
     half_exponent_mask = (1 << 5) - 1
 
@@ -271,6 +275,9 @@ def float_to_bfloat(value: float):
     - error: quantization (relative) error
     """
 
+    if value == 0:
+        return 0, 0
+
     bfloat_mantissa_mask = ((1 << 16) - 1) << 16                            # only the mantissa mask is needed
 
     uint_value = struct.unpack('I', struct.pack('f', value))[0]
@@ -279,8 +286,11 @@ def float_to_bfloat(value: float):
     # new_uint_value += 1 if uint_value & (1 << 15) == 1 else 0               # conventional rounding (rather than truncation)
 
     bfloat_value = struct.unpack('f', struct.pack('I', new_uint_value))[0]  # uint32 to float32 conversion
-    error = abs(1 - bfloat_value / value)                                   # quantization error
 
+    if value == 0:
+        return bfloat_value, 0
+    
+    error = abs(1 - bfloat_value / value)                                   # quantization error
     return bfloat_value, error
 
 
@@ -306,10 +316,14 @@ def double_to_half(value: float):
                   input data
     - error: quantization (relative) error
     """
+
+    if value == 0:
+        return 0, 0
+    
     float_value, _ = double_to_float(value)
     half_value, _ = float_to_half(float_value)
+    
     error = abs(1 - half_value / value)
-
     return half_value, error
 
 
@@ -337,8 +351,11 @@ def double_to_bfloat(value: float):
     - error: quantization (relative) error
     """
 
+    if value == 0:
+        return 0, 0
+    
     float_value, _ = double_to_float(value)
     bfloat_value, _ = float_to_bfloat(float_value)
-    error = abs(1 - bfloat_value / value)
 
+    error = abs(1 - bfloat_value / value)
     return bfloat_value, error

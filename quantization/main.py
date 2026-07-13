@@ -1,7 +1,8 @@
 from ieee_754_casting import *
 import json
 
-val = -71.17545253086246
+#val = -71.17545253086246
+val = -0.0
 
 # double-precision (float64)
 s, e, m  = get_double_datafields(val)
