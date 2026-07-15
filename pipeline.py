@@ -1,12 +1,10 @@
-import tracemalloc
 import numpy as np
 import ducc0.wgridder
 import pfb_imaging.deconv.clark as pfb_clark
 import pfb_imaging.deconv.hogbom as pfb_hogbom
 import imaging.image_data_analysis as image_data_analysis
-from imaging.fileread import *
 from astropy.io import fits
-from time import time
+from imaging.fileread import *
 
 
 class ImagePipeline():
@@ -45,13 +43,6 @@ class ImagePipeline():
         uvw = uvw.astype("float64")             # it must be float64
         freq = freq.astype("float64")           # it must be float64
 
-        self.computing_time_dirty_image = time()
-
-        tracemalloc.start()                 # memory tracing start
-        tracemalloc.clear_traces()          # clear startup traces
-        start_mem, _ = tracemalloc.get_traced_memory()
-
-
         dirty_image = ducc0.wgridder.vis2dirty(
             uvw=uvw,                            # uvw coordinates
             freq=freq,                          # channel frequencies
@@ -68,14 +59,6 @@ class ImagePipeline():
             verbosity=verbosity
         )
 
-
-        current_mem, self.peak_mem_dirty_image = tracemalloc.get_traced_memory()
-        tracemalloc.stop()                  # memory tracing end
-        self.used_mem_dirty_image = current_mem - start_mem
-
-        self.computing_time_dirty_image = time() - self.computing_time_dirty_image
-
-
         return dirty_image
 
 
@@ -83,14 +66,6 @@ class ImagePipeline():
     def compute_psf(self, uvw, freq, vis, wgt, verbosity=False):
         uvw = uvw.astype("float64")             # it must be float64
         freq = freq.astype("float64")           # it must be float64
-
-
-        self.computing_time_psf = time()
-
-        tracemalloc.start()                     # memory tracing start
-        tracemalloc.clear_traces()              # clear startup traces
-        start_mem, _ = tracemalloc.get_traced_memory()
-
 
         psf = ducc0.wgridder.vis2dirty(
             uvw=uvw,
@@ -107,14 +82,6 @@ class ImagePipeline():
             double_precision_accumulation=True,
             verbosity=verbosity
         )
-        
-
-        current_mem, self.peak_mem_psf = tracemalloc.get_traced_memory()
-        tracemalloc.stop()                      # memory tracing end
-        self.used_mem_psf = current_mem - start_mem
-
-        self.computing_time_psf = time() - self.computing_time_psf
-        
 
         return psf
 
@@ -123,14 +90,6 @@ class ImagePipeline():
     def compute_clean_image(self, dirty_image, psf, verbosity=True):
         if psf.dtype != dirty_image.dtype:
             psf = psf.astype(dirty_image.dtype)
-
-
-        self.computing_time_clean_image = time()
-
-        tracemalloc.start()                           # memory tracing start
-        tracemalloc.clear_traces()                    # clear startup traces
-        start_mem, _ = tracemalloc.get_traced_memory()
-
 
         if self.clean_algorithm == "hogbom":          # Hogbom CLEAN
             model_cube, status = pfb_hogbom.hogbom(
@@ -180,14 +139,6 @@ class ImagePipeline():
 
         model = np.squeeze(model_cube)                # extract 2D model
 
-
-        current_mem, self.peak_mem_clean_image = tracemalloc.get_traced_memory()
-        tracemalloc.stop()                            # memory tracing end
-        self.used_mem_clean_image = current_mem - start_mem
-
-        self.computing_time_clean_image = time() - self.computing_time_clean_image
-
-
         return model, status
 
 
@@ -209,14 +160,6 @@ class ImagePipeline():
         uvw = uvw.astype("float64")             # it must be float64
         freq = freq.astype("float64")           # it must be float64
 
-
-        self.computing_time_vis = time()
-
-        tracemalloc.start()                     # memory tracing start
-        tracemalloc.clear_traces()              # clear startup traces
-        start_mem, _ = tracemalloc.get_traced_memory()
-    
-
         vis = ducc0.wgridder.dirty2vis(
             uvw=uvw,                            # uvw coordinates
             freq=freq,                          # channel frequencies
@@ -231,13 +174,5 @@ class ImagePipeline():
             nthreads=8,                         # no. threads used for computation    
             verbosity=verbosity
         )
-
-
-        current_mem, self.peak_mem_vis = tracemalloc.get_traced_memory()
-        tracemalloc.stop()                      # memory tracing end
-        self.used_mem_vis = current_mem - start_mem
-
-        self.computing_time_vis = time() - self.computing_time_vis
-
 
         return vis
