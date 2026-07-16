@@ -1,0 +1,27 @@
+{
+    "attributes" : {
+        "telescope" : "askap",
+        "sky_model" : "point_extended"
+    },
+    "file_paths" : {
+        "astronomical_data_zarr_file_path" : "../data/simulated/point_extended/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr",
+        "true_model_file_path"             : "../data/simulated/point_extended/truth_model.fits"
+    },
+    "computation_parameters" : {
+        "gridding_epsilon"             : 1e-5,
+        "clean_variant"                : "clark",
+        "clean_gamma"                  : 0.0125,
+        "clean_peak_fraction"          : 0.0075,
+        "clean_max_iterations"         : 5000,
+        "feedback_loop_max_iterations" : 20,
+        "safe_float16_max"             : 10000.0,
+        "experiment_commentary"        : "",
+        "enable_log"                   : true
+    },
+    "quantization" : {
+        "visibilities" : "float64",
+        "dirty_image"  : "float64",
+        "psf"          : "float64",
+        "clean_model"  : "float64"
+    }
+}

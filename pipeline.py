@@ -10,7 +10,6 @@ from astropy.io import fits
 from calendar import month_abbr
 from time import time, localtime
 from json import dump as json_dump
-from json import load as json_load
 from imaging.image_pipeline import ImagePipeline
 
 
@@ -19,45 +18,29 @@ from imaging.image_pipeline import ImagePipeline
 year, month, day, hour, min, sec, _, _, _ = localtime()
 day_dirname = f"results-{day}-{month_abbr[month]}-{year}"
 time_dirname = f"experiment_{hour}-{min}-{sec}"
+fits_output_filename = "reconstructed_clean_model.fits"
 
-
-with open("simulation-config.json", "r") as fd:
-    simulation_config = json_load(fd)
 
 
 # auxiliary variables
 BARLENGTH = 80
 BARCHAR = '-'
-# VISIBILITY_MAXNUMBER = 4096
-# SIMULATED_DATA_PATH = "../data/simulated/point_extended/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr"
-# TRUE_MODEL_PATH = "../data/simulated/point_extended/truth_model.fits"
-SIMULATED_DATA_PATH = simulation_config["file_paths"]["astronomical_data_zarr_file_path"]
-TRUE_MODEL_PATH = simulation_config["file_paths"]["true_model_file_path"]
+VISIBILITY_MAXNUMBER = 4096
+SIMULATED_DATA_PATH = "../data/simulated/point_extended/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr"
+TRUE_MODEL_PATH = "../data/simulated/point_extended/truth_model.fits"
+SIMULATION_SCRIPT_PATH = "../scripts/run_sim_ctrl.sh"
 
 
 
 # image reconstruction parameters
-GRIDDING_EPSILON      = simulation_config["computation_parameters"]["gridding_epsilon"]
-CLEAN_VARIANT         = simulation_config["computation_parameters"]["clean_variant"]
-CLEAN_GAMMA           = simulation_config["computation_parameters"]["clean_gamma"]
-CLEAN_PF              = simulation_config["computation_parameters"]["clean_peak_fraction"]
-CLEAN_MAXITER         = simulation_config["computation_parameters"]["clean_max_iterations"]
-MAJORLOOP_MAXITER     = simulation_config["computation_parameters"]["feedback_loop_max_iterations"]
-SAFE_FLOAT16_MAX      = simulation_config["computation_parameters"]["safe_float16_max"]
-experiment_commentary = simulation_config["computation_parameters"]["experiment_commentary"]
-enable_log            = simulation_config["computation_parameters"]["enable_log"]
-
-
-
-assert SAFE_FLOAT16_MAX < 65504
-# CLEAN_VARIANT = "clark"
-# GRIDDING_EPSILON = 1e-5
-# CLEAN_GAMMA = 0.0125
-# CLEAN_PF = 0.0075
-# CLEAN_MAXITER = 5000
-# MAJORLOOP_MAXITER = 20
-# SAFE_FLOAT16_MAX = 10000.0
-# experiment_commentary = "Comparing float64 x float32 x float16 x bfloat16."
+CLEAN_VARIANT = "clark"
+GRIDDING_EPSILON = 1e-5
+CLEAN_GAMMA = 0.0125
+CLEAN_PF = 0.0075
+CLEAN_MAXITER = 5000
+MAJORLOOP_NUMITER = 20
+SAFE_FLOAT16_MAX = 10000.0
+experiment_commentary = "Comparing float64 x float32 x float16 x bfloat16."
 
 
 
@@ -68,8 +51,7 @@ assert SAFE_FLOAT16_MAX < 65504
 
 
 # data set simulated by OSKAR
-telescope = simulation_config["attributes"]["telescope"]
-skymodel = simulation_config["attributes"]["sky_model"]
+telescope, skymodel = extract_simulation_info(SIMULATION_SCRIPT_PATH)
 true_image = np.squeeze(fits.getdata(TRUE_MODEL_PATH))       # true (original) sky image
 oskar_simulated_dataset = xr.open_dataset(SIMULATED_DATA_PATH, engine="zarr")
 
@@ -107,233 +89,6 @@ pipeline.set_true_model(TRUE_MODEL_PATH)
 ########################################################################################################################
 ########################################################################################################################
 ########################################################################################################################
-
-
-
-vis_quantization_type         = simulation_config["quantization"]["visibilities"]
-dirty_image_quantization_type = simulation_config["quantization"]["dirty_image"]
-psf_quantization_type         = simulation_config["quantization"]["psf"]
-clean_model_quantization_type = simulation_config["quantization"]["clean_model"]
-
-assert vis_quantization_type         in ["float64", "float32", "float16", "bfloat16"]
-assert dirty_image_quantization_type in ["float64", "float32", "float16", "bfloat16"]
-assert psf_quantization_type         in ["float64", "float32", "float16", "bfloat16"]
-assert clean_model_quantization_type in ["float64", "float32", "float16", "bfloat16"]
-
-
-
-########################################################################################################################
-########################################################################################################################
-########################################################################################################################
-
-#################################################### image papeline ####################################################
-
-# visibilities type casting
-if enable_log:
-    print(f"Quantizing visibilities and weights to {vis_quantization_type}...")
-
-if vis_quantization_type == "float64":
-    vis = vis_data.astype("complex128")
-    wgt = weight_data.astype("float64")
-elif vis_quantization_type == "float32":
-    vis = vis_data.astype("complex64")
-    wgt = weight_data.astype("float32")
-elif vis_quantization_type == "float16":
-    scale_factor_vis = SAFE_FLOAT16_MAX / np.max(np.abs(vis_data))   # float16 scalar to maintain the visibilities values in the proper dynamic range
-    scale_factor_wgt = 1.0 / np.max(np.abs(weight_data))             # weight normalization
-
-    vis = (vis_data * scale_factor_vis).astype(np.complex64)
-    wgt = (weight_data * scale_factor_wgt).astype(np.float32)
-
-    for i in range(vis.shape[0]):
-        for j in range(vis.shape[1]):
-            data = complex(vis[i, j])
-            vis[i, j] = ieee_casting.float_to_half(data.real)[0] + ieee_casting.float_to_half(data.imag)[0] * 1j
-
-    for i in range(wgt.shape[0]):
-        for j in range(wgt.shape[1]):
-            wgt[i, j] = ieee_casting.float_to_half(wgt[i, j])[0]
-else:
-    vis = vis_data.astype(np.complex64)
-    wgt = weight_data.astype(np.float32)
-
-    for i in range(vis.shape[0]):
-        for j in range(vis.shape[1]):
-            data = complex(vis[i, j])
-            vis[i, j] = ieee_casting.float_to_bfloat(data.real)[0] + ieee_casting.float_to_bfloat(data.imag)[0] * 1j
-    
-    for i in range(wgt.shape[0]):
-        for j in range(wgt.shape[1]):
-            wgt[i, j] = ieee_casting.float_to_bfloat(wgt[i, j])[0]
-
-if enable_log:
-    print("Visibilities and weights quantized")
-    print(BARCHAR * BARLENGTH)
-
-
-
-
-#  dirty image generation
-if enable_log:
-    print(f"Generating {dirty_image_quantization_type} dirty image...")
-
-dirty_image_computing_time = time()
-monitor = MemoryMonitor()
-monitor_thread = threading.Thread(target=monitor.measure_usage)
-monitor_thread.start()
-
-dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
-                                           freq=freq_data,
-                                           vis=vis,
-                                           wgt=wgt,
-                                           verbosity=False)
-
-if dirty_image_quantization_type == "float64":
-    dirty_image.astype(np.float64)
-else:
-    dirty_image.astype(np.float32)
-
-    if dirty_image_quantization_type == "float16":
-        for i in range(dirty_image.shape[0]):
-            for j in range(dirty_image.shape[1]):
-                dirty_image[i, j] = ieee_casting.float_to_half(dirty_image[i, j])[0]
-
-    elif dirty_image_quantization_type == "bfloat16":
-        for i in range(dirty_image.shape[0]):
-            for j in range(dirty_image.shape[1]):
-                dirty_image[i, j] = ieee_casting.float_to_bfloat(dirty_image[i, j])[0]
-
-monitor.keep_measuring = False
-monitor_thread.join()
-mem_dirty_image = monitor.get_consumed_ram() / (1024 ** 2)
-dirty_image_computing_time = time() - dirty_image_computing_time
-
-if enable_log:
-    print(f"{dirty_image_quantization_type} dirty image generated")
-    print(f"Computing time: {dirty_image_computing_time} s")
-    print(f"RAM consumption: {mem_dirty_image} MB")
-    print(BARCHAR * BARLENGTH)
-
-
-
-
-# PSF generation
-if enable_log:
-    print(f"Generating {psf_quantization_type} PSF...")
-
-psf_computing_time = time()
-monitor = MemoryMonitor()
-monitor_thread = threading.Thread(target=monitor.measure_usage)
-monitor_thread.start()
-
-psf = pipeline.compute_psf(uvw=uvw_data,
-                           freq=freq_data,
-                           vis=vis,
-                           wgt=wgt,
-                           verbosity=False)
-
-if psf_quantization_type == "float64":
-    psf.astype(np.float64)
-else:
-    psf.astype(np.float32)
-
-    if psf_quantization_type == "float16":
-        for i in range(psf.shape[0]):
-            for j in range(psf.shape[1]):
-                psf[i, j] = ieee_casting.float_to_half(psf[i, j])[0]
-
-    elif psf_quantization_type == "bfloat16":
-        for i in range(psf.shape[0]):
-            for j in range(psf.shape[1]):
-                psf[i, j] = ieee_casting.float_to_bfloat(psf[i, j])[0]
-
-monitor.keep_measuring = False
-monitor_thread.join()
-mem_psf = monitor.get_consumed_ram() / (1024 ** 2)
-psf_computing_time = time() - psf_computing_time
-
-if enable_log:
-    print("float16 PSF generated")
-    print(f"Computing time: {psf_computing_time} s")
-    print(f"RAM consumption: {mem_psf} MB")
-    print(BARCHAR * BARLENGTH)
-
-
-
-
-
-
-# QUESTION: DOIS-JE QUANTIFIER LES DONNÉES (DIRTY IMAGE, PSF ET CLEAN MODEL) À CHAQUE ITERATION DE LA BOUCLE MAJEURE ?
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 ################################################ float64 image pipeline ################################################
 
@@ -404,7 +159,7 @@ clean_model_64, status_64 = pipeline.compute_clean_image(dirty_image_64, psf_64)
 
 # pipeline loop
 k = 1
-while k <= MAJORLOOP_MAXITER and status_64 == 1:
+while k <= MAJORLOOP_NUMITER and status_64 == 1:
     recomputed_vis = pipeline.compute_visibilities(dirty_image=clean_model_64,
                                                    uvw=uvw_data,
                                                    freq=freq_data,
@@ -504,7 +259,7 @@ clean_model_32, status_32 = pipeline.compute_clean_image(dirty_image_32, psf_32)
 
 # pipeline loop
 k = 1
-while k <= MAJORLOOP_MAXITER and status_32 == 1:
+while k <= MAJORLOOP_NUMITER and status_32 == 1:
     recomputed_vis = pipeline.compute_visibilities(dirty_image=clean_model_32,
                                                    uvw=uvw_data,
                                                    freq=freq_data,
@@ -616,7 +371,7 @@ clean_model_16, status_16 = pipeline.compute_clean_image(dirty_image_16, psf_16)
 
 # pipeline loop
 k = 1
-while k <= MAJORLOOP_MAXITER and status_16 == 1:
+while k <= MAJORLOOP_NUMITER and status_16 == 1:
     recomputed_vis = pipeline.compute_visibilities(dirty_image=clean_model_16,
                                                    uvw=uvw_data,
                                                    freq=freq_data,
@@ -661,7 +416,7 @@ for i in range(vis_b16.shape[0]):
 wgt_b16 = wgt_32.copy()
 for i in range(wgt_b16.shape[0]):
     for j in range(wgt_b16.shape[1]):
-        wgt_b16[i, j] = ieee_casting.float_to_bfloat(wgt_b16[i, j])[0]
+        wgt_b16[i, j] = ieee_casting.float_to_bfloat(wgt_16[i, j])[0]
 
 
 
@@ -726,7 +481,7 @@ clean_model_b16, status_b16 = pipeline.compute_clean_image(dirty_image_b16, psf_
 
 # pipeline loop
 k = 1
-while k <= MAJORLOOP_MAXITER and status_b16 == 1:
+while k <= MAJORLOOP_NUMITER and status_b16 == 1:
     recomputed_vis = pipeline.compute_visibilities(dirty_image=clean_model_b16,
                                                    uvw=uvw_data,
                                                    freq=freq_data,
@@ -866,7 +621,7 @@ parameters = {
         "second" : sec
     },
     "clean_algorithm"     : CLEAN_VARIANT,
-    "loop_iterations"     : MAJORLOOP_MAXITER,
+    "loop_iterations"     : MAJORLOOP_NUMITER,
     "dirty_image_epsilon" : GRIDDING_EPSILON,
     "clean_image"         : {
         "gamma"          : CLEAN_GAMMA,
