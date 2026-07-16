@@ -2,6 +2,3 @@ __pycache__/*
 imaging/__pycache__/*
 simulation/__pycache__/*
 quantization/__pycache__/*
-code-tests
-original_code_pipeline.py
-test-plot.py

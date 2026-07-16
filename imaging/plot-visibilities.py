@@ -1,6 +1,6 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import xarray as xr
+import matplotlib.pyplot as plt
 
 BARSPACE = 90
 SIMULATED_DATA_ABSOLUTEPATH = "../data/simulated/point_field_ctrl/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr"

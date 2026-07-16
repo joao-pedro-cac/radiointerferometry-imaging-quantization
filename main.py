@@ -1,18 +1,16 @@
 import os
-import psutil
 import threading
 import numpy as np
 import xarray as xr
 import matplotlib.pyplot as plt
 import quantization.ieee_754_casting as ieee_casting
-import imaging.image_data_analysis as image_data_analysis
-from memmon import *
+from misc.memmon import *
+from misc.fileread import *
 from astropy.io import fits
-from imaging.fileread import *
 from calendar import month_abbr
 from time import time, localtime
 from json import dump as json_dump
-from pipeline import ImagePipeline
+from imaging.pipeline import ImagePipeline
 
 
 
@@ -23,12 +21,13 @@ time_dirname = f"experiment_{hour}-{min}-{sec}"
 fits_output_filename = "reconstructed_clean_model.fits"
 
 
+
 # auxiliary variables
 BARLENGTH = 80
 BARCHAR = '-'
 VISIBILITY_MAXNUMBER = 4096
 SIMULATED_DATA_PATH = "../data/simulated/point_field_ctrl/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr"
-TRUTH_MODEL_PATH = "../data/simulated/point_field_ctrl/truth_model.fits"
+TRUE_MODEL_PATH = "../data/simulated/point_field_ctrl/truth_model.fits"
 SIMULATION_SCRIPT_PATH = "../scripts/run_sim_ctrl.sh"
 
 
@@ -36,12 +35,12 @@ SIMULATION_SCRIPT_PATH = "../scripts/run_sim_ctrl.sh"
 # image reconstruction parameters
 CLEAN_VARIANT = "hogbom"
 GRIDDING_EPSILON = 1e-5
-CLEAN_GAMMA = 0.00125
+CLEAN_GAMMA = 0.0125
 CLEAN_PF = 0.0075
-CLEAN_MAXITER = 20000
-MAJORLOOP_NUMITER = 50
-experiment_commentary = "Comparing float64 x float32 x float16 x bfloat16 using four pipelines and recreating the original sky image." \
-                        " Testing pf adaptation so that we always consider the initial dirty image's peak. Inversing float16 clean model"
+CLEAN_MAXITER = 5000
+MAJORLOOP_NUMITER = 20
+SAFE_FLOAT16_MAX = 10000.0
+experiment_commentary = "Comparing float64 x float32 x float16 x bfloat16. Recreating the 5 stars in the original sky model."
 
 
 
@@ -52,10 +51,10 @@ experiment_commentary = "Comparing float64 x float32 x float16 x bfloat16 using 
 
 
 # data set simulated by OSKAR
-telescope_name = extract_telescope_file(SIMULATION_SCRIPT_PATH)
-truth_image = np.squeeze(fits.getdata(TRUTH_MODEL_PATH))       # truth (original) sky image
+telescope, skymodel = extract_simulation_info(SIMULATION_SCRIPT_PATH)
+true_image = np.squeeze(fits.getdata(TRUE_MODEL_PATH))       # true (original) sky image
 oskar_simulated_dataset = xr.open_dataset(SIMULATED_DATA_PATH, engine="zarr")
-# print(oskar_simulated_dataset)
+
 
 
 # visibilities data subset
@@ -83,7 +82,7 @@ pipeline = ImagePipeline(clean_algorithm=CLEAN_VARIANT,
                          clean_pf=CLEAN_PF,
                          clean_maxiter=CLEAN_MAXITER)
 
-pipeline.set_truth_model(TRUTH_MODEL_PATH)
+pipeline.set_true_model(TRUE_MODEL_PATH)
 
 
 
@@ -117,6 +116,7 @@ mem_dirty_image_64 = monitor.get_consumed_ram() / (1024 ** 2)
 dirty_image_computing_time_64 = time() - dirty_image_computing_time_64
 print("float64 dirty image generated")
 print(f"Computing time: {dirty_image_computing_time_64} s")
+print(f"RAM consumption: {mem_dirty_image_64} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -135,10 +135,11 @@ psf_64 = pipeline.compute_psf(uvw=uvw_data,
                               verbosity=False)
 monitor.keep_measuring = False
 monitor_thread.join()
-mem_dirty_image_64 = monitor.get_consumed_ram() / (1024 ** 2)
+mem_psf_64 = monitor.get_consumed_ram() / (1024 ** 2)
 psf_computing_time_64 = time() - psf_computing_time_64
 print("float64 PSF generated")
 print(f"Computing time: {psf_computing_time_64} s")
+print(f"RAM consumption: {mem_psf_64} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -158,30 +159,29 @@ clean_model_64, status_64 = pipeline.compute_clean_image(dirty_image_64, psf_64)
 
 # pipeline loop
 k = 1
-recomputed_dirty_image = dirty_image_64
 while k <= MAJORLOOP_NUMITER and status_64 == 1:
     recomputed_vis = pipeline.compute_visibilities(dirty_image=clean_model_64,
                                                    uvw=uvw_data,
                                                    freq=freq_data,
                                                    wgt=wgt_64)
-    recomputed_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
-                                                          freq=freq_data,
-                                                          vis=recomputed_vis,
-                                                          wgt=wgt_64)
-    clean_model_64, status_64 = pipeline.compute_clean_image(dirty_image=recomputed_dirty_image,
-                                                             psf=psf_64)
-
-    clean_image_computing_time_64 += pipeline.computing_time_vis + pipeline.computing_time_dirty_image + pipeline.computing_time_clean_image
+    residual_vis = vis_64 - recomputed_vis
+    residual_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
+                                                        freq=freq_data,
+                                                        vis=residual_vis,
+                                                        wgt=wgt_64)
+    clean_components, status_64 = pipeline.compute_clean_image(dirty_image=residual_dirty_image,
+                                                               psf=psf_64)
+    clean_model_64 += clean_components
     k += 1
 
 monitor.keep_measuring = False
 monitor_thread.join()
-mem_64 = monitor.get_consumed_ram() / (1024 ** 2)
+mem_clean_image_64 = monitor.get_consumed_ram() / (1024 ** 2)
 
 clean_image_computing_time_64 = time() - clean_image_computing_time_64
 print("float64 clean model generated")
 print(f"Computing time: {clean_image_computing_time_64} s")
-print(f"Peak RAM consumtion: {mem_64} MB")
+print(f"RAM consumption: {mem_clean_image_64} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -202,14 +202,21 @@ wgt_32 = weight_data.astype("float32")
 #  dirty image generation
 print("Generating float32 dirty image...")
 dirty_image_computing_time_32 = time()
+monitor = MemoryMonitor()
+monitor_thread = threading.Thread(target=monitor.measure_usage)
+monitor_thread.start()
 dirty_image_32 = pipeline.compute_dirty_image(uvw=uvw_data,
                                               freq=freq_data,
                                               vis=vis_32,
                                               wgt=wgt_32,
                                               verbosity=False)
+monitor.keep_measuring = False
+monitor_thread.join()
+mem_dirty_image_32 = monitor.get_consumed_ram() / (1024 ** 2)
 dirty_image_computing_time_32 = time() - dirty_image_computing_time_32
 print("float64 dirty image generated")
 print(f"Computing time: {dirty_image_computing_time_32} s")
+print(f"RAM consumption: {mem_dirty_image_32} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -218,14 +225,21 @@ print(BARCHAR * BARLENGTH)
 # PSF generation
 print("Generating float32 PSF...")
 psf_computing_time_32 = time()
+monitor = MemoryMonitor()
+monitor_thread = threading.Thread(target=monitor.measure_usage)
+monitor_thread.start()
 psf_32 = pipeline.compute_psf(uvw=uvw_data,
                               freq=freq_data,
                               vis=vis_32,
                               wgt=wgt_32,
                               verbosity=False)
+monitor.keep_measuring = False
+monitor_thread.join()
+mem_psf_32 = monitor.get_consumed_ram() / (1024 ** 2)
 psf_computing_time_32 = time() - psf_computing_time_32
 print("float32 PSF generated")
 print(f"Computing time: {psf_computing_time_32} s")
+print(f"RAM consumption: {mem_psf_32} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -245,30 +259,29 @@ clean_model_32, status_32 = pipeline.compute_clean_image(dirty_image_32, psf_32)
 
 # pipeline loop
 k = 1
-recomputed_dirty_image = dirty_image_32
 while k <= MAJORLOOP_NUMITER and status_32 == 1:
     recomputed_vis = pipeline.compute_visibilities(dirty_image=clean_model_32,
                                                    uvw=uvw_data,
                                                    freq=freq_data,
                                                    wgt=wgt_32)
-    recomputed_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
-                                                          freq=freq_data,
-                                                          vis=recomputed_vis,
-                                                          wgt=wgt_32)
-    clean_model_32, status_32 = pipeline.compute_clean_image(dirty_image=recomputed_dirty_image,
-                                                             psf=psf_32)
-
-    clean_image_computing_time_32 += pipeline.computing_time_vis + pipeline.computing_time_dirty_image + pipeline.computing_time_clean_image
+    residual_vis = vis_32 - recomputed_vis
+    residual_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
+                                                        freq=freq_data,
+                                                        vis=residual_vis,
+                                                        wgt=wgt_32)
+    
+    clean_components, status_32 = pipeline.compute_clean_image(dirty_image=residual_dirty_image,
+                                                               psf=psf_32)
+    clean_model_32 += clean_components
     k += 1
 
 monitor.keep_measuring = False
 monitor_thread.join()
-mem_32 = monitor.get_consumed_ram() / (1024 ** 2)
-
+mem_clean_image_32 = monitor.get_consumed_ram() / (1024 ** 2)
 clean_image_computing_time_32 = time() - clean_image_computing_time_32
 print("float32 clean model generated")
 print(f"Computing time: {clean_image_computing_time_32} s")
-print(f"Peak RAM consumtion: {mem_32} MB")
+print(f"RAM consumtion: {mem_clean_image_32} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -281,30 +294,16 @@ print(BARCHAR * BARLENGTH)
 ################################################ float16 image pipeline ################################################
 
 # visibilities type casting
-safe_float16_max = 10000.0
+scale_factor_vis = SAFE_FLOAT16_MAX / np.max(np.abs(vis_data))   # float16 scalar to maintain the visibilities values in the proper dynamic range
+scale_factor_wgt = 1.0 / np.max(np.abs(weight_data))             # weight normalization
 
-# 1. Calculate scale factors
-scale_factor_vis = safe_float16_max / np.max(np.abs(vis_data))
-scale_factor_wgt = 1.0 / np.max(np.abs(weight_data)) # Normalize weights to max 1.0
+vis_16 = (vis_32 * scale_factor_vis).astype(np.complex64)
+wgt_16 = (wgt_32 * scale_factor_wgt).astype(np.float32)
 
-# 2. Apply scaling and allocate containers (complex64 and float32 used as containers)
-vis_16 = (vis_data * scale_factor_vis).astype(np.complex64)
-wgt_16 = (weight * scale_factor_wgt).astype(np.float32)
-
-# Create a vectorized version of your function that extracts just the first return value (the casted float)
-# v_float_to_half = np.vectorize(lambda x: ieee_casting.float_to_half(x)[0])
-
-# # Quantize all data instantly without loops
-# vis_16.real = v_float_to_half(vis_16.real)
-# vis_16.imag = v_float_to_half(vis_16.imag)
-# wgt_16 = v_float_to_half(wgt_16)
-
-# 3. Apply Quantization using your custom function
 for i in range(vis_16.shape[0]):
     for j in range(vis_16.shape[1]):
         data = complex(vis_16[i, j])
         vis_16[i, j] = ieee_casting.float_to_half(data.real)[0] + ieee_casting.float_to_half(data.imag)[0] * 1j
-wgt_16 = wgt_32.copy()
 for i in range(wgt_16.shape[0]):
     for j in range(wgt_16.shape[1]):
         wgt_16[i, j] = ieee_casting.float_to_half(wgt_16[i, j])[0]
@@ -315,14 +314,21 @@ for i in range(wgt_16.shape[0]):
 #  dirty image generation
 print("Generating float16 dirty image...")
 dirty_image_computing_time_16 = time()
+monitor = MemoryMonitor()
+monitor_thread = threading.Thread(target=monitor.measure_usage)
+monitor_thread.start()
 dirty_image_16 = pipeline.compute_dirty_image(uvw=uvw_data,
                                               freq=freq_data,
                                               vis=vis_16,
                                               wgt=wgt_16,
                                               verbosity=False)
+monitor.keep_measuring = False
+monitor_thread.join()
+mem_dirty_image_16 = monitor.get_consumed_ram() / (1024 ** 2)
 dirty_image_computing_time_16 = time() - dirty_image_computing_time_16
 print("float16 dirty image generated")
 print(f"Computing time: {dirty_image_computing_time_16} s")
+print(f"RAM consumption: {mem_dirty_image_16} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -331,14 +337,21 @@ print(BARCHAR * BARLENGTH)
 # PSF generation
 print("Generating float16 PSF...")
 psf_computing_time_16 = time()
+monitor = MemoryMonitor()
+monitor_thread = threading.Thread(target=monitor.measure_usage)
+monitor_thread.start()
 psf_16 = pipeline.compute_psf(uvw=uvw_data,
                               freq=freq_data,
                               vis=vis_16,
                               wgt=wgt_16,
                               verbosity=False)
+monitor.keep_measuring = False
+monitor_thread.join()
+mem_psf_16 = monitor.get_consumed_ram() / (1024 ** 2)
 psf_computing_time_16 = time() - psf_computing_time_16
 print("float16 PSF generated")
 print(f"Computing time: {psf_computing_time_16} s")
+print(f"RAM consumption: {mem_psf_16} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -358,31 +371,31 @@ clean_model_16, status_16 = pipeline.compute_clean_image(dirty_image_16, psf_16)
 
 # pipeline loop
 k = 1
-recomputed_dirty_image = dirty_image_16
 while k <= MAJORLOOP_NUMITER and status_16 == 1:
     recomputed_vis = pipeline.compute_visibilities(dirty_image=clean_model_16,
                                                    uvw=uvw_data,
                                                    freq=freq_data,
                                                    wgt=wgt_16)
-    recomputed_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
-                                                          freq=freq_data,
-                                                          vis=recomputed_vis,
-                                                          wgt=wgt_16)
-    clean_model_16, status_16 = pipeline.compute_clean_image(dirty_image=recomputed_dirty_image,
-                                                             psf=psf_16)
-
-    clean_image_computing_time_16 += pipeline.computing_time_vis + pipeline.computing_time_dirty_image + pipeline.computing_time_clean_image
+    residual_vis = vis_16 - recomputed_vis
+    residual_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
+                                                        freq=freq_data,
+                                                        vis=residual_vis,
+                                                        wgt=wgt_16)
+    
+    clean_components, status_16 = pipeline.compute_clean_image(dirty_image=residual_dirty_image,
+                                                               psf=psf_16)
+    clean_model_16 += clean_components
     k += 1
 clean_model_16 = clean_model_16 / scale_factor_vis
 
 monitor.keep_measuring = False
 monitor_thread.join()
-mem_16 = monitor.get_consumed_ram() / (1024 ** 2)
+mem_clean_image_16 = monitor.get_consumed_ram() / (1024 ** 2)
 
 clean_image_computing_time_16 = time() - clean_image_computing_time_16
 print("float16 clean model generated")
 print(f"Computing time: {clean_image_computing_time_16} s")
-print(f"Peak RAM consumtion: {mem_16} MB")
+print(f"RAM consumption: {mem_clean_image_16} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -411,14 +424,21 @@ for i in range(wgt_b16.shape[0]):
 #  dirty image generation
 print("Generating bfloat16 dirty image...")
 dirty_image_computing_time_b16 = time()
+monitor = MemoryMonitor()
+monitor_thread = threading.Thread(target=monitor.measure_usage)
+monitor_thread.start()
 dirty_image_b16 = pipeline.compute_dirty_image(uvw=uvw_data,
                                               freq=freq_data,
                                               vis=vis_b16,
                                               wgt=wgt_b16,
                                               verbosity=False)
+monitor.keep_measuring = False
+monitor_thread.join()
+mem_dirty_image_b16 = monitor.get_consumed_ram() / (1024 ** 2)
 dirty_image_computing_time_b16 = time() - dirty_image_computing_time_b16
 print("bfloat16 dirty image generated")
 print(f"Computing time: {dirty_image_computing_time_b16} s")
+print(f"RAM consumption: {mem_dirty_image_b16} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -427,14 +447,21 @@ print(BARCHAR * BARLENGTH)
 # PSF generation
 print("Generating bfloat16 PSF...")
 psf_computing_time_b16 = time()
+monitor = MemoryMonitor()
+monitor_thread = threading.Thread(target=monitor.measure_usage)
+monitor_thread.start()
 psf_b16 = pipeline.compute_psf(uvw=uvw_data,
                               freq=freq_data,
                               vis=vis_b16,
                               wgt=wgt_b16,
                               verbosity=False)
+monitor.keep_measuring = False
+monitor_thread.join()
+mem_psf_b16 = monitor.get_consumed_ram() / (1024 ** 2)
 psf_computing_time_b16 = time() - psf_computing_time_b16
 print("bfloat16 PSF generated")
 print(f"Computing time: {psf_computing_time_b16} s")
+print(f"RAM consumption: {mem_psf_b16} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -454,30 +481,30 @@ clean_model_b16, status_b16 = pipeline.compute_clean_image(dirty_image_b16, psf_
 
 # pipeline loop
 k = 1
-recomputed_dirty_image = dirty_image_b16
 while k <= MAJORLOOP_NUMITER and status_b16 == 1:
     recomputed_vis = pipeline.compute_visibilities(dirty_image=clean_model_b16,
                                                    uvw=uvw_data,
                                                    freq=freq_data,
                                                    wgt=wgt_b16)
-    recomputed_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
-                                                          freq=freq_data,
-                                                          vis=recomputed_vis,
-                                                          wgt=wgt_b16)
-    clean_model_b16, status_b16 = pipeline.compute_clean_image(dirty_image=recomputed_dirty_image,
-                                                             psf=psf_b16)
-
-    clean_image_computing_time_b16 += pipeline.computing_time_vis + pipeline.computing_time_dirty_image + pipeline.computing_time_clean_image
+    residual_vis = vis_b16 - recomputed_vis
+    residual_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
+                                                        freq=freq_data,
+                                                        vis=residual_vis,
+                                                        wgt=wgt_b16)
+    
+    clean_components, status_b16 = pipeline.compute_clean_image(dirty_image=residual_dirty_image,
+                                                               psf=psf_b16)
+    clean_model_b16 += clean_components
     k += 1
 
 monitor.keep_measuring = False
 monitor_thread.join()
-mem_b16 = monitor.get_consumed_ram() / (1024 ** 2)
+mem_clean_image_b16 = monitor.get_consumed_ram() / (1024 ** 2)
 
 clean_image_computing_time_b16 = time() - clean_image_computing_time_b16
 print("bfloat16 clean model generated")
 print(f"Computing time: {clean_image_computing_time_b16} s")
-print(f"Peak RAM consumtion: {mem_b16} MB")
+print(f"RAM consumption: {mem_clean_image_b16} MB")
 print(BARCHAR * BARLENGTH)
 
 
@@ -520,7 +547,7 @@ clean_model_b16 = np.transpose(clean_model_b16)[::-1, :]
 # saving clean image to a FITS file
 try:
     # copy the original model's coordinate system (header)
-    with fits.open(TRUTH_MODEL_PATH) as hdul:
+    with fits.open(TRUE_MODEL_PATH) as hdul:
         original_header = hdul[0].header
         
     # create a new FITS files using the clean image and the copied header
@@ -544,7 +571,7 @@ try:
 
 
     print(f"Successfully saved CLEAN images")
-except FileNotFoundError:      # exception if TRUTH_MODEL_PATH is not found
+except FileNotFoundError:      # exception if TRUE_MODEL_PATH is not found
     new_hdu = fits.PrimaryHDU(data=clean_model_64)
     new_hdu.writeto("clean_model_float64", overwrite=True)
 
@@ -565,7 +592,8 @@ print("Saving experiment parameters and result metrics...")
 
 
 parameters = {
-    "telescope"           : telescope_name,
+    "telescope"           : telescope,
+    "sky_model"           : skymodel,
     "data set"            : {
         "uvw"     : {
             "type" : str(uvw_data.dtype),
@@ -635,11 +663,31 @@ metrics = {
             "total"       : dirty_image_computing_time_b16 + psf_computing_time_b16 + clean_image_computing_time_b16
         }
     },
-    "peak_memory_consumption_megabytes" : {
-        "float64"  : mem_64,
-        "float32"  : mem_32,
-        "float16"  : mem_16,
-        "bfloat16" : mem_b16,
+    "memory_consumption_megabytes" : {
+        "float64"  : {
+            "dirty_image" : mem_dirty_image_64,
+            "psf"         : mem_psf_64,
+            "clean_image" : mem_clean_image_64,
+            "total"       : mem_dirty_image_64 + mem_psf_64 + mem_clean_image_64
+        },
+        "float32"  : {
+            "dirty_image" : mem_dirty_image_32,
+            "psf"         : mem_psf_32,
+            "clean_image" : mem_clean_image_32,
+            "total"       : mem_dirty_image_32 + mem_psf_32 + mem_clean_image_32
+        },
+        "float16"  : {
+            "dirty_image" : mem_dirty_image_16,
+            "psf"         : mem_psf_16,
+            "clean_image" : mem_clean_image_16,
+            "total"       : mem_dirty_image_16 + mem_psf_16 + mem_clean_image_16
+        },
+        "bfloat16" : {
+            "dirty_image" : mem_dirty_image_b16,
+            "psf"         : mem_psf_b16,
+            "clean_image" : mem_clean_image_b16,
+            "total"       : mem_dirty_image_b16 + mem_psf_b16 + mem_clean_image_b16
+        }
     }
 }
 
@@ -672,21 +720,6 @@ os.mkdir("dirty")
 print("Plotting results...")
 
 
-
-# image_data_analysis.create_histogram(dirty_image_exponents_64, "histogram-dirty_image-exponents.png")
-# image_data_analysis.create_histogram(dirty_image_mantissas_64, "histogram-dirty_image-mantissas.png")
-
-# image_data_analysis.create_histogram(psf_exponents_64, "histogram-psf-exponents.png")
-# image_data_analysis.create_histogram(psf_mantissas_64, "histogram-psf-mantissas.png")
-
-# image_data_analysis.create_histogram(vis_real_exponents_64, "histogram-visibilities-real_part-exponents.png")
-# image_data_analysis.create_histogram(vis_real_mantissas_64, "histogram-visibilities-real_part-mantissas.png")
-
-# image_data_analysis.create_histogram(vis_imag_exponents_64, "histogram-visibilities-imaginary_part-exponents.png")
-# image_data_analysis.create_histogram(vis_imag_mantissas_64, "histogram-visibilities-imaginary_part-mantissas.png")
-
-
-
 fig, axes = plt.subplots(figsize=(14, 12))
 
 
@@ -711,10 +744,10 @@ for p in [90, 95, 99, 99.5, 99.9, 99.95, 99.99, 99.999, 100]:
 # memory consumption comparison
 plt.figure()
 labels = ["float64", "float32", "float16", "bfloat16"]
-nums = [metrics["peak_memory_consumption_megabytes"]["float64"],
-        metrics["peak_memory_consumption_megabytes"]["float32"],
-        metrics["peak_memory_consumption_megabytes"]["float16"],
-        metrics["peak_memory_consumption_megabytes"]["bfloat16"]]
+nums = [metrics["memory_consumption_megabytes"]["float64"]["total"],
+        metrics["memory_consumption_megabytes"]["float32"]["total"],
+        metrics["memory_consumption_megabytes"]["float16"]["total"],
+        metrics["memory_consumption_megabytes"]["bfloat16"]["total"]]
 bars = plt.bar(labels, nums)
 plt.bar_label(bars, fmt='{:.6f}')
 plt.title("Memory consumption by data type")
@@ -726,8 +759,8 @@ plt.savefig(f"memory-consumption.png", format="png")
 plt.figure()
 labels = ["float64", "float32", "float16", "bfloat16"]
 nums = [metrics["computation_time_seconds"]["float64"]["total"],
-        metrics["computation_time_seconds"]["float16"]["total"],
         metrics["computation_time_seconds"]["float32"]["total"],
+        metrics["computation_time_seconds"]["float16"]["total"],
         metrics["computation_time_seconds"]["bfloat16"]["total"]]
 bars = plt.bar(labels, nums)
 plt.bar_label(bars, fmt='{:.6f}')
@@ -740,8 +773,8 @@ plt.savefig(f"computing-time.png", format="png")
 plt.figure()
 labels = ["float64", "float32", "float16", "bfloat16"]
 nums = [metrics["image_metrics"]["float64"]["rms"],
-        metrics["image_metrics"]["float16"]["rms"],
         metrics["image_metrics"]["float32"]["rms"],
+        metrics["image_metrics"]["float16"]["rms"],
         metrics["image_metrics"]["bfloat16"]["rms"]]
 bars = plt.bar(labels, nums)
 plt.bar_label(bars, fmt='{:.6f}')
@@ -754,8 +787,8 @@ plt.savefig(f"rms.png", format="png")
 plt.figure()
 labels = ["float64", "float32", "float16", "bfloat16"]
 nums = [metrics["image_metrics"]["float64"]["dynamic_range"],
-        metrics["image_metrics"]["float16"]["dynamic_range"],
         metrics["image_metrics"]["float32"]["dynamic_range"],
+        metrics["image_metrics"]["float16"]["dynamic_range"],
         metrics["image_metrics"]["bfloat16"]["dynamic_range"]]
 bars = plt.bar(labels, nums)
 plt.bar_label(bars, fmt='{:.6f}')
@@ -768,8 +801,8 @@ plt.savefig(f"dynamic-range.png", format="png")
 plt.figure()
 labels = ["float64", "float32", "float16", "bfloat16"]
 nums = [metrics["image_metrics"]["float64"]["snr"],
-        metrics["image_metrics"]["float16"]["snr"],
         metrics["image_metrics"]["float32"]["snr"],
+        metrics["image_metrics"]["float16"]["snr"],
         metrics["image_metrics"]["bfloat16"]["snr"]]
 bars = plt.bar(labels, nums)
 plt.bar_label(bars, fmt='{:.6f}')
@@ -782,8 +815,8 @@ plt.savefig(f"snr.png", format="png")
 plt.figure()
 labels = ["float64", "float32", "float16", "bfloat16"]
 nums = [metrics["image_metrics"]["float64"]["psnr"],
-        metrics["image_metrics"]["float16"]["psnr"],
         metrics["image_metrics"]["float32"]["psnr"],
+        metrics["image_metrics"]["float16"]["psnr"],
         metrics["image_metrics"]["bfloat16"]["psnr"]]
 bars = plt.bar(labels, nums)
 plt.bar_label(bars, fmt='{:.6f}')
@@ -796,8 +829,8 @@ plt.savefig(f"psnr.png", format="png")
 plt.figure()
 labels = ["float64", "float32", "float16", "bfloat16"]
 nums = [metrics["image_metrics"]["float64"]["ssim"],
-        metrics["image_metrics"]["float16"]["ssim"],
         metrics["image_metrics"]["float32"]["ssim"],
+        metrics["image_metrics"]["float16"]["ssim"],
         metrics["image_metrics"]["bfloat16"]["ssim"]]
 bars = plt.bar(labels, nums)
 plt.bar_label(bars, fmt='{:.6f}')
