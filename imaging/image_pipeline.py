@@ -120,10 +120,15 @@ class ImagePipeline():
         if psf.dtype != dirty_image.dtype:
             psf = psf.astype(dirty_image.dtype)
 
+        # normalize the dirty image and the PSF to Jy/beam
+        psf_peak = np.max(psf)
+        dirty_image_norm = dirty_image / psf_peak
+        psf_norm = psf / psf_peak
+
         if self.clean_algorithm == "hogbom":          # Hogbom CLEAN
             model_cube, status = pfb_hogbom.hogbom(
-                dirty_image[np.newaxis, :, :],        # new axis to match three dimensions
-                psf[np.newaxis, :, :],                # new axis to match three dimensions
+                dirty_image_norm[np.newaxis, :, :],   # new axis to match three dimensions
+                psf_norm[np.newaxis, :, :],           # new axis to match three dimensions
                 threshold=0,                          # force it to rely on the loop fractional threshold (pf)
                 gamma=self.clean_gamma,               # loop gain
                 pf=self.clean_pf,                     # stop when max residual drops to (pf * peak_dirty_value)
@@ -131,14 +136,9 @@ class ImagePipeline():
                 verbosity=verbosity
             )
         else:                                         # Clark CLEAN
-            # normalize the dirty image and the PSF to Jy/beam
-            psf_peak = np.max(psf)
-            dirty_image /= psf_peak
-            psf /= psf_peak
-
             # prepare the 3D representations for dirty image and PSF
-            dirty_3d = dirty_image[np.newaxis, :, :]
-            psf_3d = psf[np.newaxis, :, :]
+            dirty_3d = dirty_image_norm[np.newaxis, :, :]
+            psf_3d = psf_norm[np.newaxis, :, :]
 
             # generate the mandatory parameters required by Clark
             wsums = np.array([1.0], dtype=dirty_image.dtype)

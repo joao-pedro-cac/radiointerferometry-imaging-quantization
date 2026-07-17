@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# create a frequency histogram
-def create_histogram(array, filepath):
+# create a bitlength frequency histogram
+def create_bitlength_histogram(array, filepath):
     uniques = np.unique(array)
 
     min_unique = np.min(uniques)
