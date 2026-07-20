@@ -1,4 +1,7 @@
-__pycache__/*
-imaging/__pycache__/*
-simulation/__pycache__/*
-quantization/__pycache__/*
+pipeline.py
+analysis
+__pycache__
+imaging/__pycache__
+imaging/plot-visibilities.py
+simulation/*
+quantization/__pycache__

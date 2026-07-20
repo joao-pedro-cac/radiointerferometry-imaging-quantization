@@ -12,11 +12,11 @@
         "clean_variant"                : "hogbom",
         "clean_gamma"                  : 0.0125,
         "clean_peak_fraction"          : 0.0075,
-        "clean_max_iterations"         : 10000,
-        "feedback_loop_max_iterations" : 50,
+        "clean_max_iterations"         : 30000,
+        "feedback_loop_max_iterations" : 5,
         "safe_float16_max"             : 10000.0,
-        "experiment_commentary"        : "Testing default float16 quantization over all data",
-        "enable_log"                   : false
+        "experiment_commentary"        : "All variables encoded on 16 bits",
+        "enable_log"                   : true
     },
     "quantization" : {
         "visibilities" : "float16",
@@ -25,3 +25,5 @@
         "clean_model"  : "float16"
     }
 }
+
+

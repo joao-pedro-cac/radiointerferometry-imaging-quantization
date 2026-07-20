@@ -189,17 +189,17 @@ def double_to_float(value: float):
     double_bias = (1 << 10) - 1
     float_bias = (1 << 7) - 1
 
-    float_exponent_mask = (1 << 8) - 1      # single-precision exponent bit mask
+    # single-precision exponent bit mask
+    float_exponent_mask = (1 << 8) - 1
 
     float_sign = double_sign
     float_exponent = (double_exponent + double_bias - float_bias) & float_exponent_mask
     float_mantissa = (double_mantissa >> (52 - 23))
-    # float_mantissa += 1 if double_mantissa >> (52 - 23 + 1) & 1 == 1 else 0    # conventional rounding (rather than truncation)
 
     uint_value = (float_sign << 31) + (float_exponent << 23) + float_mantissa  # IEEE 754-compliant layout
 
-    float_value = struct.unpack('f', struct.pack('I', uint_value))[0]          # uint32 to float32 conversion
-    error = abs(1 - float_value / value)                                       # quantization error
+    float_value = struct.unpack('f', struct.pack('I', uint_value))[0]       # uint32 to float32 conversion
+    error = abs(1 - float_value / value)                                    # quantization error
 
     return float_value, error
 
@@ -237,17 +237,33 @@ def float_to_half(value: float):
     float_bias = (1 << 7) - 1
     half_bias = (1 << 4) - 1
 
-    half_exponent_mask = (1 << 5) - 1
+    # true (unbiased) exponent of the input value
+    unbiased_exponent = float_exponent - float_bias
 
-    half_sign = float_sign
-    half_exponent = (float_exponent + float_bias - half_bias) & half_exponent_mask
-    half_mantissa = (float_mantissa >> (23 - 10))
-    # half_mantissa += 1 if float_mantissa >> (23 - 10 + 1) & 1 == 1 else 0    # conventional rounding (rather than truncation)
+    # overflow prevention: magnitude too large for float16 translates into saturation (infinity)
+    if unbiased_exponent > 15:
+        half_value = float('-inf') if float_sign else float('inf')
+        return half_value, float('inf')
 
-    uint_value = (half_sign << 15) + (half_exponent << 10) + half_mantissa   # IEEE 754-compliant layout
+    # underflow prevention: beyond the smallest representable float16 subnormal translates into flushing to zero
+    if unbiased_exponent < -24:
+        half_value = -0.0 if float_sign else 0.0
+        return half_value, 1.0
 
-    half_value = struct.unpack('e', struct.pack('H', uint_value))[0]         # uint16 to float16 conversion
-    error = abs(1 - half_value / value)                                      # quantization error
+    # IEEE 754-compliant layout
+    if unbiased_exponent < -14:
+        # value falls in the float16 subnormal range: denormalize by shifting the implicit leading 1 into the mantissa field instead of using a biased exponent
+        shift = -14 - unbiased_exponent
+        full_mantissa = (1 << 23) | float_mantissa
+        half_mantissa = full_mantissa >> (23 - 10 + shift)
+        uint_value = (float_sign << 15) | half_mantissa
+    else:
+        half_exponent = unbiased_exponent + half_bias
+        half_mantissa = (float_mantissa >> (23 - 10))
+        uint_value = (float_sign << 15) + (half_exponent << 10) + half_mantissa
+
+    half_value = struct.unpack('e', struct.pack('H', uint_value))[0]        # uint16 to float16 conversion
+    error = abs(1 - half_value / value)                                     # quantization error
 
     return half_value, error
 
@@ -283,7 +299,6 @@ def float_to_bfloat(value: float):
     uint_value = struct.unpack('I', struct.pack('f', value))[0]
 
     new_uint_value = uint_value & bfloat_mantissa_mask
-    # new_uint_value += 1 if uint_value & (1 << 15) == 1 else 0               # conventional rounding (rather than truncation)
 
     bfloat_value = struct.unpack('f', struct.pack('I', new_uint_value))[0]  # uint32 to float32 conversion
 
