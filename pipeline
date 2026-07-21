@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Run the image processing pipeline with a simulation configuration JSON file
+# and outputs a directory containing the computation metrics and results
+
+python main.py $1

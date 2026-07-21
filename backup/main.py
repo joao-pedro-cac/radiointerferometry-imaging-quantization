@@ -12,7 +12,6 @@ from calendar import month_abbr
 from time import time, localtime
 from json import dump as json_dump
 from json import load as json_load
-from quantization.quantize import *
 from imaging.image_pipeline import ImagePipeline
 
 
@@ -20,8 +19,8 @@ from imaging.image_pipeline import ImagePipeline
 
 # experiment time and day
 year, month, day, hour, min, sec, _, _, _ = localtime()
-day_dirname = f"results-{day:02}-{month_abbr[month]}-{year}"
-time_dirname = f"experiment_{hour:02}-{min:02}-{sec:02}"
+day_dirname = f"results-{day}-{month_abbr[month]}-{year}"
+time_dirname = f"experiment_{hour}-{min}-{sec}"
 
 if len(argv) < 2:
     raise Exception("Error, insert an input JSON file")
@@ -124,12 +123,43 @@ assert clean_model_quantization_type in ["float64", "float32", "float16", "bfloa
 
 #################################################### image papeline ####################################################
 
-# visibilities quantization
+# visibilities type casting
 if enable_log:
     print(f"Quantizing visibilities and weights to {vis_quantization_type}...")
 
-vis, scalefactor_vis = quantize_visibilities(vis_data, vis_quantization_type, SAFE_FLOAT16_MAX)
-wgt, _ = quantize_weights(weight_data, vis_quantization_type, SAFE_FLOAT16_MAX)
+if vis_quantization_type == "float64":
+    vis = vis_data.astype("complex128")
+    wgt = weight_data.astype("float64")
+else:
+    vis = vis_data.astype("complex64")
+    wgt = weight_data.astype("float32")
+
+    if vis_quantization_type == "float16":
+        scale_factor_vis = SAFE_FLOAT16_MAX / np.max(np.abs(vis))
+        scale_factor_wgt = SAFE_FLOAT16_MAX / np.sum(wgt)
+
+        vis = (vis * scale_factor_vis).astype(np.complex64)
+        wgt = (wgt * scale_factor_wgt).astype(np.float32)
+
+        for i in range(vis.shape[0]):
+            for j in range(vis.shape[1]):
+                data = complex(vis[i, j])
+                vis[i, j] = ieee_casting.float_to_half(data.real)[0] + ieee_casting.float_to_half(data.imag)[0] * 1j
+
+        for i in range(wgt.shape[0]):
+            for j in range(wgt.shape[1]):
+                wgt[i, j] = ieee_casting.float_to_half(wgt[i, j])[0]
+    elif vis_quantization_type == "bfloat16":
+        for i in range(vis.shape[0]):
+            for j in range(vis.shape[1]):
+                data = complex(vis[i, j])
+                vis[i, j] = ieee_casting.float_to_bfloat(data.real)[0] + ieee_casting.float_to_bfloat(data.imag)[0] * 1j
+        
+        for i in range(wgt.shape[0]):
+            for j in range(wgt.shape[1]):
+                wgt[i, j] = ieee_casting.float_to_bfloat(wgt[i, j])[0]
+    else:        # vérifier fonctionnement
+        scale_factor_wgt = np.max(wgt) / np.sum(wgt)
 
 if enable_log:
     print("Visibilities and weights quantized")
@@ -138,7 +168,7 @@ if enable_log:
 
 
 
-#  dirty image
+#  dirty image generation
 if enable_log:
     print(f"Generating {dirty_image_quantization_type} dirty image...")
 
@@ -147,16 +177,30 @@ monitor = MemoryMonitor()
 monitor_thread = threading.Thread(target=monitor.measure_usage)
 monitor_thread.start()
 
-# computation
 dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
                                            freq=freq_data,
                                            vis=vis,
                                            wgt=wgt,
                                            verbosity=False)
 
-# quantization
-dirty_image, scalefactor_dirty = quantize_image(dirty_image, dirty_image_quantization_type, SAFE_FLOAT16_MAX)
+if dirty_image_quantization_type == "float64":
+    dirty_image = dirty_image.astype(np.float64)
+else:
+    dirty_image = dirty_image.astype(np.float32)
 
+    if dirty_image_quantization_type == "float16":
+        scale_factor_dirty = SAFE_FLOAT16_MAX / np.max(np.abs(dirty_image))
+        dirty_image = (dirty_image * scale_factor_dirty).astype(np.float32)
+        
+        for i in range(dirty_image.shape[0]):
+            for j in range(dirty_image.shape[1]):
+                dirty_image[i, j] = ieee_casting.float_to_half(dirty_image[i, j])[0]
+
+        dirty_image = np.nan_to_num(dirty_image, nan=0.0, posinf=0.0, neginf=0.0)
+    elif dirty_image_quantization_type == "bfloat16":
+        for i in range(dirty_image.shape[0]):
+            for j in range(dirty_image.shape[1]):
+                dirty_image[i, j] = ieee_casting.float_to_bfloat(dirty_image[i, j])[0]
 
 monitor.keep_measuring = False
 monitor_thread.join()
@@ -172,7 +216,7 @@ if enable_log:
 
 
 
-# PSF
+# PSF generation
 if enable_log:
     print(f"Generating {psf_quantization_type} PSF...")
 
@@ -181,16 +225,31 @@ monitor = MemoryMonitor()
 monitor_thread = threading.Thread(target=monitor.measure_usage)
 monitor_thread.start()
 
-# computation
 psf = pipeline.compute_psf(uvw=uvw_data,
                            freq=freq_data,
                            vis=vis,
                            wgt=wgt,
                            verbosity=False)
 
-# quantization
-psf, scalefactor_psf = quantize_image(psf, psf_quantization_type, SAFE_FLOAT16_MAX)
+if psf_quantization_type == "float64":
+    psf = psf.astype(np.float64)
+else:
+    psf = psf.astype(np.float32)
 
+    if psf_quantization_type == "float16":
+        scale_factor_psf = SAFE_FLOAT16_MAX / np.max(np.abs(psf))
+        psf = (psf * scale_factor_psf).astype(np.float32)
+
+        for i in range(psf.shape[0]):
+            for j in range(psf.shape[1]):
+                psf[i, j] = ieee_casting.float_to_half(psf[i, j])[0]
+        
+        psf = np.nan_to_num(psf, nan=0.0, posinf=0.0, neginf=0.0)
+
+    elif psf_quantization_type == "bfloat16":
+        for i in range(psf.shape[0]):
+            for j in range(psf.shape[1]):
+                psf[i, j] = ieee_casting.float_to_bfloat(psf[i, j])[0]
 
 monitor.keep_measuring = False
 monitor_thread.join()
@@ -216,11 +275,26 @@ monitor = MemoryMonitor()
 monitor_thread = threading.Thread(target=monitor.measure_usage)
 monitor_thread.start()
 
-# computation
+
 clean_model, status = pipeline.compute_clean_image(dirty_image, psf, verbosity=enable_log)
 
-# quantization
-clean_model, scalefactor_clean = quantize_image(clean_model, clean_model_quantization_type, SAFE_FLOAT16_MAX)
+
+if clean_model_quantization_type == "float64":
+    clean_model = clean_model.astype(np.float64)
+else:
+    clean_model = clean_model.astype(np.float32)
+
+    if clean_model_quantization_type == "float16":
+        scale_factor_clean = SAFE_FLOAT16_MAX / np.max(np.abs(clean_model))
+        clean_model = (clean_model * scale_factor_clean).astype(np.float32)
+
+        for i in range(clean_model.shape[0]):
+            for j in range(clean_model.shape[1]):
+                clean_model[i, j] = ieee_casting.float_to_half(clean_model[i, j])[0]
+    elif clean_model_quantization_type == "bfloat16":
+        for i in range(clean_model.shape[0]):
+            for j in range(clean_model.shape[1]):
+                clean_model[i, j] = ieee_casting.float_to_bfloat(clean_model[i, j])[0]
 
 
 # pipeline loop
@@ -230,44 +304,87 @@ while k <= MAJORLOOP_MAXITER and status == 1:
                                                    uvw=uvw_data,
                                                    freq=freq_data,
                                                    wgt=wgt)
-    recomputed_vis, _ = quantize_visibilities(vis=recomputed_vis,
-                                              quantization_type=vis_quantization_type,
-                                              float16_rescale_max=SAFE_FLOAT16_MAX,
-                                              conserve_scalefactor=True,
-                                              scale_factor_vis=scalefactor_vis)
 
+    if vis_quantization_type == "float64":
+        recomputed_vis = recomputed_vis.astype("complex128")
+    else:
+        recomputed_vis = recomputed_vis.astype("complex64")
+        if vis_quantization_type == "float16":
+            recomputed_vis = (recomputed_vis * scale_factor_vis).astype(np.complex64)
 
+            for i in range(recomputed_vis.shape[0]):
+                for j in range(recomputed_vis.shape[1]):
+                    data = complex(recomputed_vis[i, j])
+                    recomputed_vis[i, j] = ieee_casting.float_to_half(data.real)[0] + ieee_casting.float_to_half(data.imag)[0] * 1j
+        elif vis_quantization_type == "bfloat16":
+            for i in range(recomputed_vis.shape[0]):
+                for j in range(recomputed_vis.shape[1]):
+                    data = complex(recomputed_vis[i, j])
+                    recomputed_vis[i, j] = ieee_casting.float_to_bfloat(data.real)[0] + ieee_casting.float_to_bfloat(data.imag)[0] * 1j
 
     residual_vis = vis - recomputed_vis
-
 
 
     residual_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
                                                         freq=freq_data,
                                                         vis=residual_vis,
                                                         wgt=wgt)
-    residual_dirty_image, scalefactor_dirty = quantize_image(residual_dirty_image, dirty_image_quantization_type, SAFE_FLOAT16_MAX)
     
+    if dirty_image_quantization_type == "float64":
+        residual_dirty_image = residual_dirty_image.astype(np.float64)
+    else:
+        residual_dirty_image = residual_dirty_image.astype(np.float32)
+
+        if dirty_image_quantization_type == "float16":
+            scale_factor_dirty = SAFE_FLOAT16_MAX / np.max(np.abs(residual_dirty_image))
+            residual_dirty_image = (residual_dirty_image * scale_factor_dirty).astype(np.float32)
+
+            for i in range(residual_dirty_image.shape[0]):
+                for j in range(residual_dirty_image.shape[1]):
+                    residual_dirty_image[i, j] = ieee_casting.float_to_half(residual_dirty_image[i, j])[0]
+
+            residual_dirty_image = np.nan_to_num(residual_dirty_image, nan=0.0, posinf=0.0, neginf=0.0)
+
+        elif dirty_image_quantization_type == "bfloat16":
+            for i in range(residual_dirty_image.shape[0]):
+                for j in range(residual_dirty_image.shape[1]):
+                    residual_dirty_image[i, j] = ieee_casting.float_to_bfloat(residual_dirty_image[i, j])[0]
+
 
 
     clean_components, status = pipeline.compute_clean_image(dirty_image=residual_dirty_image,
                                                             psf=psf,
                                                             verbosity=enable_log)
     clean_model += clean_components
-    clean_model, scaled_factor_clean = quantize_image(clean_model, clean_model_quantization_type, SAFE_FLOAT16_MAX)
+
+    if clean_model_quantization_type == "float64":
+        clean_model = clean_model.astype(np.float64)
+    else:
+        clean_model = clean_model.astype(np.float32)
+
+        if clean_model_quantization_type == "float16":
+            scale_factor_clean = SAFE_FLOAT16_MAX / np.max(np.abs(clean_model))
+            clean_model = (clean_model * scale_factor_clean).astype(np.float32)
+
+            for i in range(clean_model.shape[0]):
+                for j in range(clean_model.shape[1]):
+                    clean_model[i, j] = ieee_casting.float_to_half(clean_model[i, j])[0]
+        elif clean_model_quantization_type == "bfloat16":
+            for i in range(clean_model.shape[0]):
+                for j in range(clean_model.shape[1]):
+                    clean_model[i, j] = ieee_casting.float_to_bfloat(clean_model[i, j])[0]
 
 
     k += 1
 
-
 if vis_quantization_type == "float16":
-    clean_model = (clean_model / scalefactor_vis).astype(np.float32)
+    clean_model = (clean_model / scale_factor_vis).astype(np.float32)
 if dirty_image_quantization_type == "float16":
-    clean_model = (clean_model / scalefactor_dirty).astype(np.float32)
+    clean_model = (clean_model / scale_factor_dirty).astype(np.float32)
 if psf_quantization_type == "float16":
-    clean_model = (clean_model * scalefactor_psf).astype(np.float32)
+    clean_model = (clean_model * scale_factor_psf).astype(np.float32)
 if clean_model_quantization_type == "float16":
-    clean_model = (clean_model / scalefactor_clean).astype(np.float32)
+    clean_model = (clean_model / scale_factor_clean).astype(np.float32)
 
 
 

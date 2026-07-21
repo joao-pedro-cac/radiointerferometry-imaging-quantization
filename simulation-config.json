@@ -1,11 +1,12 @@
 {
     "attributes" : {
         "telescope" : "askap",
-        "sky_model" : "point_field"
+        "sky_model" : "point_extended"
     },
     "file_paths" : {
-        "astronomical_data_zarr_file_path" : "/home/joaoc/Documents/data/simulated/point_field/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr",
-        "true_model_file_path"             : "/home/joaoc/Documents/data/simulated/point_field/truth_model.fits"
+        "astronomical_data_zarr_file_path" : "/home/joaoc/Documents/data/simulated/point_extended/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr",
+        "true_model_file_path"             : "/home/joaoc/Documents/data/simulated/point_extended/truth_model.fits",
+        "output_file_path"                 : "/home/joaoc/Documents/results"
     },
     "computation_parameters" : {
         "gridding_epsilon"             : 1e-5,
@@ -15,7 +16,7 @@
         "clean_max_iterations"         : 30000,
         "feedback_loop_max_iterations" : 5,
         "safe_float16_max"             : 10000.0,
-        "experiment_commentary"        : "All variables encoded on 16 bits",
+        "experiment_commentary"        : "All variables encoded as float16, testing the quantization stages after modularization",
         "enable_log"                   : true
     },
     "quantization" : {

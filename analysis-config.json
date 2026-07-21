@@ -1,0 +1,14 @@
+{
+    "name" : "just-a-test",
+    "output_directory" : "/home/joaoc/Documents/analysis",
+    "input_directories" : {
+        "label1" : "/home/joaoc/Documents/results/results-20-Jul-2026/experiment_16-2-16",
+        "label2" : "/home/joaoc/Documents/results/results-20-Jul-2026/experiment_14-41-49",
+        "label3" : "/home/joaoc/Documents/results/results-20-Jul-2026/experiment_13-57-4",
+        "label4" : "/home/joaoc/Documents/results/results-20-Jul-2026/experiment_13-51-40",
+        "label5" : "/home/joaoc/Documents/results/results-20-Jul-2026/experiment_13-49-34",
+        "label6" : "/home/joaoc/Documents/results/results-20-Jul-2026/experiment_13-46-25",
+        "label7" : "/home/joaoc/Documents/results/results-20-Jul-2026/experiment_13-43-21",
+        "label8" : "/home/joaoc/Documents/results/results-20-Jul-2026/experiment_11-52-47"
+    }
+}
