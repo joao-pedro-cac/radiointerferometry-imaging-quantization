@@ -1,6 +1,6 @@
 {
     "attributes" : {
-        "telescope" : "askap",
+        "telescope" : "atca_all",
         "sky_model" : "point_extended"
     },
     "file_paths" : {
@@ -16,14 +16,14 @@
         "clean_max_iterations"         : 30000,
         "feedback_loop_max_iterations" : 5,
         "safe_float16_max"             : 10000.0,
-        "experiment_commentary"        : "All variables encoded as float16, testing the quantization stages after modularization",
+        "experiment_commentary"        : "All variables encoded as bfloat16",
         "enable_log"                   : true
     },
     "quantization" : {
-        "visibilities" : "float16",
-        "dirty_image"  : "float16",
-        "psf"          : "float16",
-        "clean_model"  : "float16"
+        "visibilities" : "bfloat16",
+        "dirty_image"  : "bfloat16",
+        "psf"          : "bfloat16",
+        "clean_model"  : "bfloat16"
     }
 }
 

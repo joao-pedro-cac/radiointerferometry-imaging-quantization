@@ -13,6 +13,7 @@ from time import time, localtime
 from json import dump as json_dump
 from json import load as json_load
 from quantization.quantize import *
+from imaging.image_data_analysis import *
 from imaging.image_pipeline import ImagePipeline
 
 
@@ -23,9 +24,14 @@ year, month, day, hour, min, sec, _, _, _ = localtime()
 day_dirname = f"results-{day:02}-{month_abbr[month]}-{year}"
 time_dirname = f"experiment_{hour:02}-{min:02}-{sec:02}"
 
+
+
+
+# make sure there is at least one command-line argument
 if len(argv) < 2:
     raise Exception("Error, insert an input JSON file")
 
+# verify if the argument file is a JSON
 simulation_config_filepath = argv[1]
 if ".json" not in simulation_config_filepath:
     raise Exception("Invalid file, the program input must be a JSON file")
@@ -34,11 +40,14 @@ with open(simulation_config_filepath, "r") as fd:
     simulation_config = json_load(fd)
 
 
+
+
 # auxiliary variables
 BARLENGTH = 80
 BARCHAR = '-'
 SIMULATED_DATA_PATH = simulation_config["file_paths"]["astronomical_data_zarr_file_path"]
 TRUE_MODEL_PATH = simulation_config["file_paths"]["true_model_file_path"]
+
 
 
 
@@ -90,6 +99,7 @@ weight_data = np.squeeze(weight.data)
 
 
 
+# image processing pipeline object
 pipeline = ImagePipeline(clean_algorithm=CLEAN_VARIANT,
                          gridding_epsilon=GRIDDING_EPSILON,
                          clean_gamma=CLEAN_GAMMA,
@@ -106,6 +116,7 @@ pipeline.set_true_model(TRUE_MODEL_PATH)
 
 
 
+# quantization parameters
 vis_quantization_type         = simulation_config["quantization"]["visibilities"]
 dirty_image_quantization_type = simulation_config["quantization"]["dirty_image"]
 psf_quantization_type         = simulation_config["quantization"]["psf"]
@@ -124,7 +135,7 @@ assert clean_model_quantization_type in ["float64", "float32", "float16", "bfloa
 
 #################################################### image papeline ####################################################
 
-# visibilities quantization
+# visibilities and weights quantization
 if enable_log:
     print(f"Quantizing visibilities and weights to {vis_quantization_type}...")
 
@@ -147,14 +158,12 @@ monitor = MemoryMonitor()
 monitor_thread = threading.Thread(target=monitor.measure_usage)
 monitor_thread.start()
 
-# computation
+
 dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
                                            freq=freq_data,
                                            vis=vis,
                                            wgt=wgt,
                                            verbosity=False)
-
-# quantization
 dirty_image, scalefactor_dirty = quantize_image(dirty_image, dirty_image_quantization_type, SAFE_FLOAT16_MAX)
 
 
@@ -165,7 +174,7 @@ dirty_image_computation_time = time() - dirty_image_computation_time
 
 if enable_log:
     print(f"{dirty_image_quantization_type} dirty image generated")
-    print(f"œon time: {dirty_image_computation_time} s")
+    print(f"Computation time: {dirty_image_computation_time} s")
     print(f"RAM consumption: {mem_dirty_image} MB")
     print(BARCHAR * BARLENGTH)
 
@@ -181,14 +190,12 @@ monitor = MemoryMonitor()
 monitor_thread = threading.Thread(target=monitor.measure_usage)
 monitor_thread.start()
 
-# computation
+
 psf = pipeline.compute_psf(uvw=uvw_data,
                            freq=freq_data,
                            vis=vis,
                            wgt=wgt,
                            verbosity=False)
-
-# quantization
 psf, scalefactor_psf = quantize_image(psf, psf_quantization_type, SAFE_FLOAT16_MAX)
 
 
@@ -216,10 +223,8 @@ monitor = MemoryMonitor()
 monitor_thread = threading.Thread(target=monitor.measure_usage)
 monitor_thread.start()
 
-# computation
-clean_model, status = pipeline.compute_clean_image(dirty_image, psf, verbosity=enable_log)
 
-# quantization
+clean_model, status = pipeline.compute_clean_image(dirty_image, psf, verbosity=enable_log)
 clean_model, scalefactor_clean = quantize_image(clean_model, clean_model_quantization_type, SAFE_FLOAT16_MAX)
 
 
@@ -230,16 +235,10 @@ while k <= MAJORLOOP_MAXITER and status == 1:
                                                    uvw=uvw_data,
                                                    freq=freq_data,
                                                    wgt=wgt)
-    recomputed_vis, _ = quantize_visibilities(vis=recomputed_vis,
-                                              quantization_type=vis_quantization_type,
-                                              float16_rescale_max=SAFE_FLOAT16_MAX,
-                                              conserve_scalefactor=True,
-                                              scale_factor_vis=scalefactor_vis)
-
+    recomputed_vis, _ = quantize_visibilities(recomputed_vis, vis_quantization_type, SAFE_FLOAT16_MAX, True, scalefactor_vis)
 
 
     residual_vis = vis - recomputed_vis
-
 
 
     residual_dirty_image = pipeline.compute_dirty_image(uvw=uvw_data,
@@ -257,9 +256,11 @@ while k <= MAJORLOOP_MAXITER and status == 1:
     clean_model, scaled_factor_clean = quantize_image(clean_model, clean_model_quantization_type, SAFE_FLOAT16_MAX)
 
 
+
     k += 1
 
 
+# clean model de-scaling for every scaled variable due to float16 limited value range
 if vis_quantization_type == "float16":
     clean_model = (clean_model / scalefactor_vis).astype(np.float32)
 if dirty_image_quantization_type == "float16":
@@ -268,8 +269,6 @@ if psf_quantization_type == "float16":
     clean_model = (clean_model * scalefactor_psf).astype(np.float32)
 if clean_model_quantization_type == "float16":
     clean_model = (clean_model / scalefactor_clean).astype(np.float32)
-
-
 
 
 monitor.keep_measuring = False
@@ -286,11 +285,9 @@ if enable_log:
 
 
 
-
 ########################################################################################################################
 ########################################################################################################################
 ########################################################################################################################
-
 
 
 
@@ -425,9 +422,16 @@ if enable_log:
 
 
 
+########################################################################################################################
+########################################################################################################################
+########################################################################################################################
+
+
+
 # plotting results
 os.mkdir("images")
 os.chdir("images")
+os.mkdir("dirty")
 
 if enable_log:
     print("Plotting results...")
@@ -451,7 +455,161 @@ for p in [90, 95, 99, 99.5, 99.9, 99.95, 99.99, 99.999, 100]:
         whole_part = int(p)
         decimal_part = p - whole_part
         filename = str(whole_part) + '_' + str(decimal_part)[2:5]
-    plt.savefig(f'dirty-image-{filename}.png', format='png')
+    plt.savefig(f'dirty/dirty-image-{filename}.png', format='png')
 
 
 
+# bit length histograms
+os.mkdir("bitlength")
+os.chdir("bitlength")
+
+os.mkdir("visibilities")
+os.mkdir("visibilities/real")
+os.mkdir("visibilities/imaginary")
+os.mkdir("dirty-image")
+os.mkdir("psf")
+os.mkdir("clean-model")
+
+
+
+# visibilities (real part)
+exp = []
+man = []
+
+for i in range(vis.shape[0]):
+    for j in range(vis.shape[1]):
+        if vis_quantization_type == "float64":
+            _, e, m = ieee_casting.get_double_datafields(vis[i, j].real)
+            exp.append(e)
+            man.append(m)
+        elif vis_quantization_type == "float32":
+            _, e, m = ieee_casting.get_float_datafields(vis[i, j].real)
+            exp.append(e)
+            man.append(m)
+        elif vis_quantization_type == "float16":
+            _, e, m = ieee_casting.get_half_datafields(vis[i, j].real)
+            exp.append(e)
+            man.append(m)
+        else:
+            _, e, m = ieee_casting.get_bfloat_datafields(vis[i, j].real)
+            exp.append(e)
+            man.append(m)
+
+create_bitlength_histogram(exp, "visibilities/real/exponent.png", "Effective bit length of the exponent field (visibilities, real part)")
+create_bitlength_histogram(man, "visibilities/real/mantissa.png", "Effective bit length of the mantissa field (visibilities, real part)")
+
+
+
+# visibilities (imaginary part)
+exp = []
+man = []
+
+for i in range(vis.shape[0]):
+    for j in range(vis.shape[1]):
+        if vis_quantization_type == "float64":
+            _, e, m = ieee_casting.get_double_datafields(vis[i, j].imag)
+            exp.append(e)
+            man.append(m)
+        elif vis_quantization_type == "float32":
+            _, e, m = ieee_casting.get_float_datafields(vis[i, j].imag)
+            exp.append(e)
+            man.append(m)
+        elif vis_quantization_type == "float16":
+            _, e, m = ieee_casting.get_half_datafields(vis[i, j].imag)
+            exp.append(e)
+            man.append(m)
+        else:
+            _, e, m = ieee_casting.get_bfloat_datafields(vis[i, j].imag)
+            exp.append(e)
+            man.append(m)
+
+create_bitlength_histogram(exp, "visibilities/imaginary/exponent.png", "Effective bit length of the exponent field (visibilities, imaginary part)")
+create_bitlength_histogram(man, "visibilities/imaginary/mantissa.png", "Effective bit length of the mantissa field (visibilities, imaginary part)")
+
+
+
+# dirty image
+exp = []
+man = []
+
+for i in range(dirty_image.shape[0]):
+    for j in range(dirty_image.shape[1]):
+        if dirty_image_quantization_type == "float64":
+            _, e, m = ieee_casting.get_double_datafields(dirty_image[i, j])
+            exp.append(e)
+            man.append(m)
+        elif dirty_image_quantization_type == "float32":
+            _, e, m = ieee_casting.get_float_datafields(dirty_image[i, j])
+            exp.append(e)
+            man.append(m)
+        elif dirty_image_quantization_type == "float16":
+            _, e, m = ieee_casting.get_half_datafields(dirty_image[i, j])
+            exp.append(e)
+            man.append(m)
+        else:
+            _, e, m = ieee_casting.get_bfloat_datafields(dirty_image[i, j])
+            exp.append(e)
+            man.append(m)
+
+create_bitlength_histogram(exp, "dirty-image/exponent.png", "Effective bit length of the exponent field (dirty image)")
+create_bitlength_histogram(man, "dirty-image/mantissa.png", "Effective bit length of the mantissa field (dirty image)")
+
+
+
+# PSF
+exp = []
+man = []
+
+for i in range(psf.shape[0]):
+    for j in range(psf.shape[1]):
+        if psf_quantization_type == "float64":
+            _, e, m = ieee_casting.get_double_datafields(psf[i, j])
+            exp.append(e)
+            man.append(m)
+        elif psf_quantization_type == "float32":
+            _, e, m = ieee_casting.get_float_datafields(psf[i, j])
+            exp.append(e)
+            man.append(m)
+        elif psf_quantization_type == "float16":
+            _, e, m = ieee_casting.get_half_datafields(psf[i, j])
+            exp.append(e)
+            man.append(m)
+        else:
+            _, e, m = ieee_casting.get_bfloat_datafields(psf[i, j])
+            exp.append(e)
+            man.append(m)
+
+create_bitlength_histogram(exp, "psf/exponent.png", "Effective bit length of the exponent field (psf)")
+create_bitlength_histogram(man, "psf/mantissa.png", "Effective bit length of the mantissa field (psf)")
+
+
+
+# clean model
+exp = []
+man = []
+
+for i in range(clean_model.shape[0]):
+    for j in range(clean_model.shape[1]):
+        if clean_model_quantization_type == "float64":
+            _, e, m = ieee_casting.get_double_datafields(clean_model[i, j])
+            exp.append(e)
+            man.append(m)
+        elif clean_model_quantization_type == "float32":
+            _, e, m = ieee_casting.get_float_datafields(clean_model[i, j])
+            exp.append(e)
+            man.append(m)
+        elif clean_model_quantization_type == "float16":
+            _, e, m = ieee_casting.get_half_datafields(clean_model[i, j])
+            exp.append(e)
+            man.append(m)
+        else:
+            _, e, m = ieee_casting.get_bfloat_datafields(clean_model[i, j])
+            exp.append(e)
+            man.append(m)
+
+create_bitlength_histogram(exp, "clean-model/exponent.png", "Effective bit length of the exponent field (clean model)")
+create_bitlength_histogram(man, "clean-model/mantissa.png", "Effective bit length of the mantissa field (clean model)")
+
+
+if enable_log:
+    print("Results succesfully plotted")

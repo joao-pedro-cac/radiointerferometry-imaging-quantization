@@ -1,5 +1,5 @@
 pipeline.py
-analysis
+backup
 __pycache__
 imaging/__pycache__
 imaging/plot-visibilities.py

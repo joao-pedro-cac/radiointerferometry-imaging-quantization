@@ -2,23 +2,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # create a bitlength frequency histogram
-def create_bitlength_histogram(array, filepath):
+def create_bitlength_histogram(array, filepath, histogram_title):
+    for i in range(len(array)):
+        array[i] = int.bit_length(array[i])
+
     uniques = np.unique(array)
 
-    min_unique = np.min(uniques)
     max_unique = np.max(uniques)
 
-    horizontal_axe = np.arange(min(min_unique, 0), max_unique + 1)
+    horizontal_axe = np.arange(0, max_unique + 1)
     vertical_axe = [int(np.count_nonzero(array == i)) for i in horizontal_axe]
 
     plt.figure()
     plt.bar(horizontal_axe, vertical_axe)
 
-    plt.title(f"Bit encoding frequency")
+    plt.title(histogram_title)
     plt.xlabel("Number of encoded bits")
     plt.ylabel("Counting frequency")
     
-    plt.savefig(filepath)
+    plt.savefig(filepath, format="png")
     plt.close()
 
 
