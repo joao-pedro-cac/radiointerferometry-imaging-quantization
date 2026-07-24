@@ -1,11 +1,13 @@
 {
     "attributes" : {
-        "telescope" : "atca_all",
-        "sky_model" : "point_extended"
+        "telescope"               : "meerkat",
+        "sky_model"               : "multiple_gaussian_sources",
+        "percentage_visibilities" : 0.1,
+        "rng_seed"                : 42
     },
     "file_paths" : {
-        "astronomical_data_zarr_file_path" : "/home/joaoc/Documents/data/simulated/point_extended/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr",
-        "true_model_file_path"             : "/home/joaoc/Documents/data/simulated/point_extended/truth_model.fits",
+        "astronomical_data_zarr_file_path" : "/home/joaoc/Documents/data/simulated/multiple_gaussian_sources/obs_I.xds/ms0000_fid0000_spw0000_scan0000_band0000_time0000.zarr",
+        "true_model_file_path"             : "/home/joaoc/Documents/data/simulated/multiple_gaussian_sources/truth_model.fits",
         "output_file_path"                 : "/home/joaoc/Documents/results"
     },
     "computation_parameters" : {
@@ -13,17 +15,19 @@
         "clean_variant"                : "hogbom",
         "clean_gamma"                  : 0.0125,
         "clean_peak_fraction"          : 0.0075,
-        "clean_max_iterations"         : 30000,
+        "clean_max_iterations"         : 1000,
         "feedback_loop_max_iterations" : 5,
-        "safe_float16_max"             : 10000.0,
-        "experiment_commentary"        : "All variables encoded as bfloat16",
+        "safe_float16_max"             : 65503.0,
+        "experiment_commentary"        : "All variables encoded to float64. Testing five random gaussian sources",
         "enable_log"                   : true
     },
     "quantization" : {
-        "visibilities" : "bfloat16",
-        "dirty_image"  : "bfloat16",
-        "psf"          : "bfloat16",
-        "clean_model"  : "bfloat16"
+        "coordinates"  : "float64",
+        "frequencies"  : "float64",
+        "visibilities" : "float64",
+        "dirty_image"  : "float64",
+        "psf"          : "float64",
+        "clean_model"  : "float64"
     }
 }
 

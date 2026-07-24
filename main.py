@@ -5,6 +5,7 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import quantization.ieee_754_casting as ieee_casting
 from sys import argv
+from math import ceil
 from misc.memmon import *
 from misc.fileread import *
 from astropy.io import fits
@@ -47,6 +48,11 @@ BARLENGTH = 80
 BARCHAR = '-'
 SIMULATED_DATA_PATH = simulation_config["file_paths"]["astronomical_data_zarr_file_path"]
 TRUE_MODEL_PATH = simulation_config["file_paths"]["true_model_file_path"]
+PERCENTAGE_VISIBILITIES = simulation_config["attributes"]["percentage_visibilities"]
+RNG_SEED = simulation_config["attributes"]["rng_seed"]
+
+assert PERCENTAGE_VISIBILITIES >= 0 and PERCENTAGE_VISIBILITIES <= 1
+assert type(RNG_SEED) == int and RNG_SEED >= 0
 
 
 
@@ -76,20 +82,28 @@ assert SAFE_FLOAT16_MAX < 65504
 telescope = simulation_config["attributes"]["telescope"]
 skymodel = simulation_config["attributes"]["sky_model"]
 true_image = np.squeeze(fits.getdata(TRUE_MODEL_PATH))       # true (original) sky image
-oskar_simulated_dataset = xr.open_dataset(SIMULATED_DATA_PATH, engine="zarr")
 
+oskar_simulated_dataset = xr.open_dataset(SIMULATED_DATA_PATH, engine="zarr")
+rng = np.random.default_rng(RNG_SEED)
 
 
 # visibilities data subset
+
+
 uvw    = oskar_simulated_dataset["UVW"]
 freq   = oskar_simulated_dataset["FREQ"]
 vis    = oskar_simulated_dataset["VIS"]
 weight = oskar_simulated_dataset["WEIGHT"]
 
-uvw_data =    uvw.data
-freq_data =   freq.data
-vis_data =    np.squeeze(vis.data)
-weight_data = np.squeeze(weight.data)
+
+# nvis_tot = len(uvw)
+# nvis = rate_vis * nvis_tot
+# idx =  rng.permutation(nvis_tot)[0:nvis]# random permutation d'indice de taille nvis
+
+uvw_data    = uvw.data[:ceil(PERCENTAGE_VISIBILITIES * uvw.shape[0])]
+freq_data   = freq.data
+vis_data    = np.squeeze(vis.data)[:ceil(PERCENTAGE_VISIBILITIES * vis.shape[1])]
+weight_data = np.squeeze(weight.data)[:ceil(PERCENTAGE_VISIBILITIES * weight.shape[1])]
 
 
 
@@ -143,7 +157,6 @@ vis, scalefactor_vis = quantize_visibilities(vis_data, vis_quantization_type, SA
 wgt, _ = quantize_weights(weight_data, vis_quantization_type, SAFE_FLOAT16_MAX)
 
 if enable_log:
-    print("Visibilities and weights quantized")
     print(BARCHAR * BARLENGTH)
 
 
@@ -349,6 +362,8 @@ if enable_log:
 parameters = {
     "telescope"           : telescope,
     "sky_model"           : skymodel,
+    "percentage_visibilities" : PERCENTAGE_VISIBILITIES,
+    "rng_seed"                : RNG_SEED,
     "data set"            : {
         "uvw"     : {
             "type" : str(uvw_data.dtype),
