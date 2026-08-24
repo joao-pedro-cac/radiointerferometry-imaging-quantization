@@ -1,5 +1,10 @@
 pipeline.py
 backup
+requirement.txt
+ubuntu1:requirement.txt
+pyproject.toml
+uv.lock
+.python-version
 __pycache__
 imaging/__pycache__
 imaging/plot-visibilities.py
