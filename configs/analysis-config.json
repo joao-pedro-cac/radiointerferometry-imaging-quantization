@@ -1,0 +1,10 @@
+{
+    "name" : "Comparison between all float types - diffuse source (ATCA_all)",
+    "output_directory" : "/home/joaoc/Documents/analysis",
+    "input_directories" : {
+        "float64"  : "/home/joaoc/Documents/results/results-23-Jul-2026/experiment_11-10-15",
+        "float32"  : "/home/joaoc/Documents/results/results-23-Jul-2026/experiment_14-39-45",
+        "float16"  : "/home/joaoc/Documents/results/results-23-Jul-2026/experiment_14-44-42",
+        "bfloat16" : "/home/joaoc/Documents/results/results-23-Jul-2026/experiment_14-47-02"
+    }
+}

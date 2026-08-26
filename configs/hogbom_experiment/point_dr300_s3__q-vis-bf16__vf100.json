@@ -1,0 +1,33 @@
+{
+    "attributes": {
+        "telescope": "meerkat",
+        "sky_model": "point",
+        "vis_fraction": 1.0,
+        "rng_seed": 42,
+        "noise_floor": 0.0001
+    },
+    "file_paths": {
+        "data_path": "/home/mhiriy/radiointerferometry-imaging-quantization/data/simulated/hogbom_experiments",
+        "dataset_name": "point_dr300_s3",
+        "output_file_path": "/home/mhiriy/radiointerferometry-imaging-quantization/results/hogbom_experiment/point_dr300_s3__q-vis-bf16__vf100"
+    },
+    "computation_parameters": {
+        "gridding_epsilon": 1e-05,
+        "clean_variant": "hogbom",
+        "clean_gamma": 0.025,
+        "clean_peak_fraction": 0.0075,
+        "clean_max_iterations": 10000,
+        "feedback_loop_max_iterations": 5,
+        "safe_float16_max": 65503.0,
+        "experiment_commentary": "point_dr300_s3__q-vis-bf16__vf100 | frozen-deconv q=vis-bf16 vf=1.0",
+        "enable_log": true
+    },
+    "quantization": {
+        "coordinates": "float64",
+        "frequencies": "float64",
+        "visibilities": "bfloat16",
+        "dirty_image": "float64",
+        "psf": "float64",
+        "clean_model": "float64"
+    }
+}
